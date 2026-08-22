@@ -1,0 +1,8 @@
+- id: brake-check
+  name: brake check
+  description: Check changed API contracts for backward compatibility.
+  entry: brake check
+  language: system
+  pass_filenames: true
+  require_serial: true
+  files: \.(ya?ml|json)$

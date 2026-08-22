@@ -80,3 +80,30 @@ pub static RULES: &[Rule] = &[
 pub fn lookup(id: &str) -> Option<&'static Rule> {
     RULES.iter().find(|rule| rule.id == id)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{RULES, lookup};
+
+    #[test]
+    fn every_rule_has_non_placeholder_explanation() {
+        for rule in RULES {
+            assert!(
+                !rule.summary.trim().is_empty(),
+                "empty summary for {}",
+                rule.id
+            );
+            assert!(
+                !rule.explanation.trim().is_empty(),
+                "empty explanation for {}",
+                rule.id
+            );
+        }
+    }
+
+    #[test]
+    fn lookup_finds_known_rule() {
+        let rule = lookup("endpoint-removed").expect("known rule should resolve");
+        assert_eq!(rule.id, "endpoint-removed");
+    }
+}

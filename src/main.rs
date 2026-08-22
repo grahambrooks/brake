@@ -85,11 +85,31 @@ enum Command {
 fn main() -> std::process::ExitCode {
     let cli = Cli::parse();
 
+    if let Command::Explain { rule } = &cli.command {
+        if let Some(definition) = brake::rules::catalogue::lookup(rule) {
+            println!(
+                "{}\nseverity: {:?}\nsummary: {}\n\n{}",
+                definition.id, definition.severity, definition.summary, definition.explanation
+            );
+            return std::process::ExitCode::from(Verdict::Clean.exit_code() as u8);
+        }
+
+        eprintln!(
+            "brake {}: unknown rule id `{}`.\n\
+             \n\
+             Use a rule ID from the catalogue. Exiting {}.",
+            brake::VERSION,
+            rule,
+            Verdict::ToolFailure.exit_code()
+        );
+        return std::process::ExitCode::from(Verdict::ToolFailure.exit_code() as u8);
+    }
+
     let unimplemented = match &cli.command {
         Command::Check { .. } => "check",
         Command::Analyze { .. } => "analyze",
         Command::Diff { .. } => "diff",
-        Command::Explain { .. } => "explain",
+        Command::Explain { .. } => unreachable!("handled above"),
     };
 
     eprintln!(

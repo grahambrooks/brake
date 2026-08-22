@@ -1,0 +1,2 @@
+[hooks.brake]
+command = "cargo run -- check api/payments-openapi.yaml"
