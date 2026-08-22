@@ -75,6 +75,18 @@ pub static RULES: &[Rule] = &[
         summary: "A documented response status code was removed.",
         explanation: "Removing response statuses breaks consumers depending on previously documented outcomes.",
     },
+    Rule {
+        id: "stale-allow",
+        severity: Severity::Error,
+        summary: "A suppression no longer matches any finding.",
+        explanation: "Stale suppressions hide real regressions and should be removed once no longer needed.",
+    },
+    Rule {
+        id: "expired-allow",
+        severity: Severity::Error,
+        summary: "A suppression is past its expiry date.",
+        explanation: "Expired suppressions must fail the check to enforce time-bounded exceptions.",
+    },
 ];
 
 pub fn lookup(id: &str) -> Option<&'static Rule> {

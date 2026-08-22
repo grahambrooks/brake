@@ -52,7 +52,8 @@ pub fn check_contract(repo_root: &Path, defaults: &Defaults, contract: &Contract
     };
 
     let changes = compare::compare_contracts(&base_contract, &head_contract);
-    let findings = rules::evaluate(&changes);
+    let findings = rules::evaluate(&changes, contract.effective_compatibility(defaults));
+    let findings = rules::apply_suppressions(findings, &contract.allow, None);
     Report::new(findings, Vec::new(), 1)
 }
 
