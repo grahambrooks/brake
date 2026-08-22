@@ -245,7 +245,7 @@ fn render_report(report: &brake::report::Report, requested_format: &str) -> Resu
     match normalize_format(requested_format)? {
         OutputFormat::Text => Ok(brake::render::text::render(report)),
         OutputFormat::Json => Ok(brake::render::json::render(report)),
-        OutputFormat::Sarif => Err("SARIF output is not implemented yet".to_owned()),
+        OutputFormat::Sarif => Ok(brake::render::sarif::render(report)),
     }
 }
 
