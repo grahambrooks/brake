@@ -1,0 +1,24 @@
+src/main.rs
+  s_0cb991f403e29b::t_42007bfdb1e531 248
+src/render/sarif.rs
+  s_0cb991f403e29b::t_a3745b23b7b79c 1-128,133-134
+  s_0cb991f403e29b::t_18db3334651509 129-132
+src/render/mod.rs
+  s_0cb991f403e29b::t_a5dca7f5b591f5 2
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.23",
+  "base_commit_sha": "cbb1070cef6894379b03f24cb3606961453f59aa",
+  "prompts": {},
+  "sessions": {
+    "s_0cb991f403e29b": {
+      "agent_id": {
+        "tool": "github-copilot-cli",
+        "id": "eaeadcb9-4369-46ec-8304-c581569c7aac",
+        "model": "auto"
+      },
+      "human_author": "Graham Brooks <graham@grahambrooks.com>"
+    }
+  }
+}
