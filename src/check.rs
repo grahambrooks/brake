@@ -1,6 +1,8 @@
 use std::fs;
 use std::path::Path;
+use std::process::Command;
 
+use crate::Severity;
 use crate::baseline;
 use crate::compare;
 use crate::config::{Config, ContractConfig, Defaults};
@@ -8,7 +10,13 @@ use crate::contract::openapi;
 use crate::report::{Report, Unavailable};
 use crate::rules;
 
-pub fn check_contract(repo_root: &Path, defaults: &Defaults, contract: &ContractConfig) -> Report {
+pub fn check_contract(
+    repo_root: &Path,
+    defaults: &Defaults,
+    contract: &ContractConfig,
+    as_of: Option<&str>,
+    drift: bool,
+) -> Report {
     let resolved = match baseline::resolve_for_contract(repo_root, defaults, contract) {
         Ok(resolved) => resolved,
         Err(error) => {
@@ -53,11 +61,24 @@ pub fn check_contract(repo_root: &Path, defaults: &Defaults, contract: &Contract
 
     let changes = compare::compare_contracts(&base_contract, &head_contract);
     let findings = rules::evaluate(&changes, contract.effective_compatibility(defaults));
-    let findings = rules::apply_suppressions(findings, &contract.allow, None);
+    let mut findings = rules::apply_suppressions(findings, &contract.allow, as_of);
+    if drift
+        && let Some(generated) = &contract.generated
+        && let Some(drift_finding) =
+            generated_drift_finding(repo_root, contract, &head_bytes, &generated.command)
+    {
+        findings.push(drift_finding);
+    }
     Report::new(findings, Vec::new(), 1)
 }
 
-pub fn check_contracts(repo_root: &Path, config: &Config, since: Option<&str>) -> Report {
+pub fn check_contracts(
+    repo_root: &Path,
+    config: &Config,
+    since: Option<&str>,
+    as_of: Option<&str>,
+    drift: bool,
+) -> Report {
     let scoped_contracts = match select_contracts_in_scope(repo_root, config, since) {
         Ok(contracts) => contracts,
         Err(message) => {
@@ -75,12 +96,57 @@ pub fn check_contracts(repo_root: &Path, config: &Config, since: Option<&str>) -
     let mut findings = Vec::new();
     let mut unavailable = Vec::new();
     for contract in &scoped_contracts {
-        let report = check_contract(repo_root, &config.defaults, contract);
+        let report = check_contract(repo_root, &config.defaults, contract, as_of, drift);
         findings.extend(report.findings);
         unavailable.extend(report.unavailable);
     }
 
     Report::new(findings, unavailable, scoped_contracts.len())
+}
+
+fn generated_drift_finding(
+    repo_root: &Path,
+    contract: &ContractConfig,
+    committed_bytes: &[u8],
+    command: &str,
+) -> Option<rules::Finding> {
+    let temp = tempfile::tempdir().ok()?;
+    let output = Command::new("sh")
+        .arg("-c")
+        .arg(command)
+        .current_dir(temp.path())
+        .env("BRAKE_REPO_ROOT", repo_root)
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return Some(rules::Finding {
+            rule_id: "generated-drift",
+            severity: Severity::Error,
+            message: format!(
+                "generated command failed for contract `{}`: {}",
+                contract.name,
+                String::from_utf8_lossy(&output.stderr).trim()
+            ),
+            method: None,
+            path: Some(contract.source.display().to_string()),
+            span: None,
+        });
+    }
+    if output.stdout != committed_bytes {
+        return Some(rules::Finding {
+            rule_id: "generated-drift",
+            severity: Severity::Error,
+            message: format!(
+                "generated output drift for contract `{}` from `{}`",
+                contract.name,
+                contract.source.display()
+            ),
+            method: None,
+            path: Some(contract.source.display().to_string()),
+            span: None,
+        });
+    }
+    None
 }
 
 fn select_contracts_in_scope<'a>(
@@ -172,6 +238,7 @@ mod tests {
                 "api/payments-openapi.baseline.yaml",
             ))),
             allow: Vec::new(),
+            generated: None,
         }
     }
 
@@ -248,7 +315,7 @@ paths:
             compatibility: Compatibility::WireJson,
             baseline: None,
         };
-        let report = check_contract(repo.path(), &defaults, &contract_fixture());
+        let report = check_contract(repo.path(), &defaults, &contract_fixture(), None, false);
 
         assert_eq!(report.exit_code(Severity::Error), 1);
         let rendered = text::render(&report);
@@ -283,7 +350,7 @@ paths:
             compatibility: Compatibility::WireJson,
             baseline: None,
         };
-        let report = check_contract(repo.path(), &defaults, &contract_fixture());
+        let report = check_contract(repo.path(), &defaults, &contract_fixture(), None, false);
 
         assert_eq!(report.exit_code(Severity::Error), 0);
     }
@@ -337,6 +404,7 @@ paths:
                     compatibility: None,
                     baseline: None,
                     allow: Vec::new(),
+                    generated: None,
                 },
                 ContractConfig {
                     name: "b".to_owned(),
@@ -345,12 +413,97 @@ paths:
                     compatibility: None,
                     baseline: None,
                     allow: Vec::new(),
+                    generated: None,
                 },
             ],
         };
 
-        let report = check_contracts(repo.path(), &config, Some("HEAD~1"));
+        let report = check_contracts(repo.path(), &config, Some("HEAD~1"), None, false);
         assert_eq!(report.contracts_checked, 1);
         assert_eq!(report.exit_code(Severity::Error), 1);
+    }
+
+    #[test]
+    fn drift_reports_generated_drift_when_output_differs() {
+        let repo = tempdir().expect("tempdir");
+        let api_dir = repo.path().join("api");
+        fs::create_dir_all(&api_dir).expect("mkdir api");
+
+        let contract_body = r#"
+openapi: 3.1.0
+paths:
+  /payments/{id}:
+    get:
+      operationId: getPayment
+      responses:
+        "200":
+          description: ok
+"#;
+        fs::write(
+            api_dir.join("payments-openapi.baseline.yaml"),
+            contract_body,
+        )
+        .expect("write baseline");
+        fs::write(api_dir.join("payments-openapi.yaml"), contract_body).expect("write head");
+
+        let defaults = Defaults {
+            compatibility: Compatibility::WireJson,
+            baseline: None,
+        };
+        let mut contract = contract_fixture();
+        contract.generated = Some(crate::config::GeneratedConfig {
+            command: "printf 'not-the-checked-in-spec'".to_owned(),
+        });
+
+        let report = check_contract(repo.path(), &defaults, &contract, None, true);
+        assert!(
+            report
+                .findings
+                .iter()
+                .any(|finding| finding.rule_id == "generated-drift")
+        );
+        assert_eq!(report.exit_code(Severity::Error), 1);
+    }
+
+    #[test]
+    fn drift_passes_when_generated_output_matches() {
+        let repo = tempdir().expect("tempdir");
+        let api_dir = repo.path().join("api");
+        fs::create_dir_all(&api_dir).expect("mkdir api");
+
+        let contract_body = r#"
+openapi: 3.1.0
+paths:
+  /payments/{id}:
+    get:
+      operationId: getPayment
+      responses:
+        "200":
+          description: ok
+"#;
+        fs::write(
+            api_dir.join("payments-openapi.baseline.yaml"),
+            contract_body,
+        )
+        .expect("write baseline");
+        fs::write(api_dir.join("payments-openapi.yaml"), contract_body).expect("write head");
+
+        let defaults = Defaults {
+            compatibility: Compatibility::WireJson,
+            baseline: None,
+        };
+        let mut contract = contract_fixture();
+        contract.generated = Some(crate::config::GeneratedConfig {
+            command: "cat \"$BRAKE_REPO_ROOT/api/payments-openapi.yaml\"".to_owned(),
+        });
+
+        let report = check_contract(repo.path(), &defaults, &contract, None, true);
+        assert!(
+            !report
+                .findings
+                .iter()
+                .any(|finding| finding.rule_id == "generated-drift")
+        );
+        assert_eq!(report.exit_code(Severity::Error), 0);
     }
 }

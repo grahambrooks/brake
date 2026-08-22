@@ -240,6 +240,7 @@ mod tests {
             compatibility: None,
             baseline,
             allow: Vec::new(),
+            generated: None,
         }
     }
 

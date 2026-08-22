@@ -13,7 +13,7 @@
 
 use std::path::PathBuf;
 
-use brake::Verdict;
+use brake::{Severity, Verdict};
 use clap::{Parser, Subcommand};
 
 #[derive(Parser)]
@@ -47,6 +47,9 @@ enum Command {
         /// Minimum severity to report.
         #[arg(long, default_value = "warning")]
         severity: String,
+        /// Evaluate suppression expiry at this date (YYYY-MM-DD).
+        #[arg(long)]
+        as_of: Option<String>,
         /// Output format: auto, text, json, sarif.
         #[arg(long, short, default_value = "auto")]
         format: String,
@@ -65,6 +68,9 @@ enum Command {
         /// Output format: auto, text, json, sarif.
         #[arg(long, short, default_value = "auto")]
         format: String,
+        /// Minimum severity that should fail analyze.
+        #[arg(long, default_value = "warning")]
+        fail_on: String,
     },
     /// Report every change with its classification, without failing.
     Diff {
@@ -105,11 +111,70 @@ fn main() -> std::process::ExitCode {
         return std::process::ExitCode::from(Verdict::ToolFailure.exit_code() as u8);
     }
 
+    if let Command::Check {
+        since,
+        config,
+        severity,
+        as_of,
+        drift,
+        ..
+    } = &cli.command
+    {
+        let config_value = match brake::config::Config::from_path(config) {
+            Ok(value) => value,
+            Err(error) => {
+                eprintln!("{error}");
+                return std::process::ExitCode::from(Verdict::ToolFailure.exit_code() as u8);
+            }
+        };
+        let threshold = match parse_severity(severity) {
+            Ok(value) => value,
+            Err(message) => {
+                eprintln!("{message}");
+                return std::process::ExitCode::from(Verdict::ToolFailure.exit_code() as u8);
+            }
+        };
+        let report = brake::check::check_contracts(
+            &PathBuf::from("."),
+            &config_value,
+            since.as_deref(),
+            as_of.as_deref(),
+            *drift,
+        );
+        print!("{}", brake::render::text::render(&report));
+        return std::process::ExitCode::from(report.exit_code(threshold) as u8);
+    }
+
+    if let Command::Analyze {
+        path,
+        config,
+        fail_on,
+        ..
+    } = &cli.command
+    {
+        let config_value = match brake::config::Config::from_path(config) {
+            Ok(value) => value,
+            Err(error) => {
+                eprintln!("{error}");
+                return std::process::ExitCode::from(Verdict::ToolFailure.exit_code() as u8);
+            }
+        };
+        let threshold = match parse_severity(fail_on) {
+            Ok(value) => value,
+            Err(message) => {
+                eprintln!("{message}");
+                return std::process::ExitCode::from(Verdict::ToolFailure.exit_code() as u8);
+            }
+        };
+        let report = brake::check::check_contracts(path, &config_value, None, None, false);
+        print!("{}", brake::render::text::render(&report));
+        return std::process::ExitCode::from(report.exit_code(threshold) as u8);
+    }
+
     let unimplemented = match &cli.command {
-        Command::Check { .. } => "check",
-        Command::Analyze { .. } => "analyze",
         Command::Diff { .. } => "diff",
         Command::Explain { .. } => unreachable!("handled above"),
+        Command::Check { .. } | Command::Analyze { .. } => unreachable!("handled above"),
     };
 
     eprintln!(
@@ -125,4 +190,15 @@ fn main() -> std::process::ExitCode {
     );
 
     std::process::ExitCode::from(Verdict::ToolFailure.exit_code() as u8)
+}
+
+fn parse_severity(input: &str) -> Result<Severity, String> {
+    match input.trim().to_ascii_lowercase().as_str() {
+        "info" => Ok(Severity::Info),
+        "warning" | "warn" => Ok(Severity::Warning),
+        "error" | "err" => Ok(Severity::Error),
+        _ => Err(format!(
+            "unknown severity `{input}`; expected one of: info, warning, error"
+        )),
+    }
 }

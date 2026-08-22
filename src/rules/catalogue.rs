@@ -87,6 +87,12 @@ pub static RULES: &[Rule] = &[
         summary: "A suppression is past its expiry date.",
         explanation: "Expired suppressions must fail the check to enforce time-bounded exceptions.",
     },
+    Rule {
+        id: "generated-drift",
+        severity: Severity::Error,
+        summary: "Generated contract output differs from the checked-in artifact.",
+        explanation: "Generated drift means the committed contract is stale relative to its declared generator output.",
+    },
 ];
 
 pub fn lookup(id: &str) -> Option<&'static Rule> {

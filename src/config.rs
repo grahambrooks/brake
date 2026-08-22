@@ -48,6 +48,7 @@ pub struct ContractConfig {
     pub compatibility: Option<Compatibility>,
     pub baseline: Option<Baseline>,
     pub allow: Vec<Suppression>,
+    pub generated: Option<GeneratedConfig>,
 }
 
 impl ContractConfig {
@@ -101,6 +102,11 @@ pub struct Suppression {
     pub field: Option<String>,
     pub reason: String,
     pub expires: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GeneratedConfig {
+    pub command: String,
 }
 
 #[derive(Debug, Error)]
@@ -165,6 +171,7 @@ struct RawContract {
     baseline: Option<RawBaseline>,
     #[serde(default)]
     allow: Vec<RawSuppression>,
+    generated: Option<RawGenerated>,
 }
 
 impl RawContract {
@@ -196,6 +203,29 @@ impl RawContract {
                 .map(|raw| raw.validate(&format!("contract `{}`", self.name)))
                 .transpose()?,
             allow,
+            generated: self
+                .generated
+                .map(|raw| raw.validate(&self.name))
+                .transpose()?,
+        })
+    }
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawGenerated {
+    command: String,
+}
+
+impl RawGenerated {
+    fn validate(self, contract_name: &str) -> Result<GeneratedConfig, ConfigError> {
+        if self.command.trim().is_empty() {
+            return Err(ConfigError::Validation(format!(
+                "contract `{contract_name}` generated.command cannot be empty"
+            )));
+        }
+        Ok(GeneratedConfig {
+            command: self.command,
         })
     }
 }
@@ -329,6 +359,7 @@ mod tests {
         assert_eq!(config.contracts.len(), 1);
         assert_eq!(config.contracts[0].name, "payments");
         assert_eq!(config.contracts[0].allow.len(), 1);
+        assert!(config.contracts[0].generated.is_none());
     }
 
     #[test]
@@ -380,6 +411,29 @@ mod tests {
         assert_eq!(
             config.contracts[0].effective_compatibility(&config.defaults),
             Compatibility::WireJson
+        );
+    }
+
+    #[test]
+    fn parses_generated_command() {
+        let config = Config::parse(
+            r#"
+            [[contract]]
+            name = "payments"
+            format = "openapi"
+            source = "api/payments-openapi.yaml"
+            generated = { command = "echo generated" }
+        "#,
+        )
+        .expect("config should parse");
+
+        assert_eq!(
+            config.contracts[0]
+                .generated
+                .as_ref()
+                .expect("generated config")
+                .command,
+            "echo generated"
         );
     }
 }
