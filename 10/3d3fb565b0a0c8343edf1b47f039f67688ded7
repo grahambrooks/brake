@@ -1,0 +1,24 @@
+src/contract/graphql.rs
+  s_0cb991f403e29b::t_d6587ef2dc282d 1-39,42-49
+  s_0cb991f403e29b::t_c0439e4c254c87 40-41
+src/contract/mod.rs
+  s_0cb991f403e29b::t_3c9529f7b1cec3 3,5
+src/contract/proto.rs
+  s_0cb991f403e29b::t_bef35f7db0c77d 1-48
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.23",
+  "base_commit_sha": "103d3fb565b0a0c8343edf1b47f039f67688ded7",
+  "prompts": {},
+  "sessions": {
+    "s_0cb991f403e29b": {
+      "agent_id": {
+        "tool": "github-copilot-cli",
+        "id": "eaeadcb9-4369-46ec-8304-c581569c7aac",
+        "model": "auto"
+      },
+      "human_author": "Graham Brooks <graham@grahambrooks.com>"
+    }
+  }
+}
