@@ -1,0 +1,32 @@
+src/rules/catalogue.rs
+  s_0cb991f403e29b::t_7653dcc0feede4 78-89
+src/config.rs
+  s_0cb991f403e29b::t_96b1aa1c531a3e 63
+src/check.rs
+  s_0cb991f403e29b::t_df3cf301f1f17d 56
+  s_0cb991f403e29b::t_8a7e0a27c8d00c 55
+src/rules/mod.rs
+  s_0cb991f403e29b::t_2d0a1f5c14842d 6,178-196,200-246,253,261,273,390-421
+  s_0cb991f403e29b::t_9ef139d72ac480 302,316,331,363
+  s_0cb991f403e29b::t_b976afeffeb57c 252,254-260,262-272,274-280
+  s_0cb991f403e29b::t_07463b6b296ad4 5,19,162-164,247-250
+  s_0cb991f403e29b::t_74532b1c39654d 251,375-389,422
+  s_0cb991f403e29b::t_c831538558037d 197-199
+  s_0cb991f403e29b::t_af372bc7f86c6c 281
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.23",
+  "base_commit_sha": "6a704d7079f56cf4c2d94a81d10a8168f7737af4",
+  "prompts": {},
+  "sessions": {
+    "s_0cb991f403e29b": {
+      "agent_id": {
+        "tool": "github-copilot-cli",
+        "id": "eaeadcb9-4369-46ec-8304-c581569c7aac",
+        "model": "auto"
+      },
+      "human_author": "Graham Brooks <graham@grahambrooks.com>"
+    }
+  }
+}
