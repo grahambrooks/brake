@@ -1,0 +1,76 @@
+src/config.rs
+  s_0cb991f403e29b::t_fbaddd431a2bf2 1-18,20-21,23-152,154-172,176-300,302-324,328-335,337-355,357-368,370-385
+  s_0cb991f403e29b::t_8f63db0218657d 19,22,301,336,356,369
+  s_0cb991f403e29b::t_f73f523b3d4025 153,173-175,325-327
+src/contract/mod.rs
+  s_0cb991f403e29b::t_4bc374c3be0a5b 1-70,72-107
+  s_0cb991f403e29b::t_fe87184e44004d 71
+src/contract/openapi.rs
+  s_0cb991f403e29b::t_a4c9ceccde1f82 270-279,282-291
+  s_0cb991f403e29b::t_b339aeb2f05b24 141-143,196-198,255-257,318-320,567-569
+  s_0cb991f403e29b::t_8f6fafe39ce1e3 1-140,144-195,199-254,258-269,280-281,292-317,321-441,443-566,570-688
+  s_0cb991f403e29b::t_d6bf96b1b13d35 442
+src/rules/catalogue.rs
+  s_0cb991f403e29b::t_9ff6c6fc36c2e5 36-77
+  s_0cb991f403e29b::t_ad6af130d18ed2 1-35,78-82
+src/compare/mod.rs
+  s_0cb991f403e29b::t_e175c6a40553be 5,7
+  s_0cb991f403e29b::t_b6dc53a316ea93 6,27-77,139-208,212-260,276,302-314,316-322,408-470
+  s_0cb991f403e29b::t_cccbfc8ecf8890 209-211,315
+  s_0cb991f403e29b::t_10e1aa1ddb5186 471-516,521-523
+  s_0cb991f403e29b::t_bd4757134c76a3 279-281,517-520
+  s_0cb991f403e29b::t_a7350ebd5ef8b6 1-4,8-26,78-138,261-275,277-278,282-301,323-343,349-384,390-407,524-525
+  s_0cb991f403e29b::t_eb54098b503d80 344-348,385-389
+src/check.rs
+  s_0cb991f403e29b::t_315186bc45c898 1-53,55-146,152-162
+  s_0cb991f403e29b::t_2f53200c25025b 147-151
+  s_0cb991f403e29b::t_213f7f76b91a6f 54
+src/report.rs
+  s_0cb991f403e29b::t_fb3105f816a8be 13-17,31-35
+  s_0cb991f403e29b::t_1c91f843743616 1-12,18-30,36-93
+src/rules/mod.rs
+  s_0cb991f403e29b::t_50cb41f61bbea9 53-155,235-254
+  s_0cb991f403e29b::t_477c321cb625ad 1-52,156-234,265-266
+  s_0cb991f403e29b::t_cccbfc8ecf8890 255-264
+src/render/mod.rs
+  s_0cb991f403e29b::t_c55f80670177c6 1
+src/render/text.rs
+  s_0cb991f403e29b::t_55224237248e28 1-13,18-90
+  s_0cb991f403e29b::t_fb3105f816a8be 14-17
+Cargo.toml
+  s_0cb991f403e29b::t_8524a18ecc7633 56-58
+  s_0cb991f403e29b::t_ad5904bead311a 55
+  s_0cb991f403e29b::t_bbb51a074e087b 61
+src/compare/types.rs
+  s_0cb991f403e29b::t_60d57b4960afc3 266
+  s_0cb991f403e29b::t_9791dc169df63c 1-33,40-82,91-107,109-139,144-147,152-170,179-202,204-265,267-438
+  s_0cb991f403e29b::t_f200b8ce872f6f 34-39,83-90,108,140-143,148-151,171-178,203
+src/baseline.rs
+  s_0cb991f403e29b::t_f73f523b3d4025 19-24
+  s_0cb991f403e29b::t_bfdbc589646354 1-18,25-158
+src/lib.rs
+  s_0cb991f403e29b::t_32cbba0a0f6123 15
+  s_0cb991f403e29b::t_5a8b3874d1adb1 14
+  s_0cb991f403e29b::t_0cbf885b41e57a 18-19
+  s_0cb991f403e29b::t_15722c3efee03f 13,16,21
+  s_0cb991f403e29b::t_41fec2287d0ca4 17
+  s_0cb991f403e29b::t_257a70b01099f8 20
+Cargo.lock
+  s_0cb991f403e29b::t_8779dbf225db18 55-72,78-82,85-90,137-202,209-218,225-251,258-266,285-365,383-454,481-492
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.23",
+  "base_commit_sha": "c7f6306f8a2a7e9290dc2effa8f680934dd80a3f",
+  "prompts": {},
+  "sessions": {
+    "s_0cb991f403e29b": {
+      "agent_id": {
+        "tool": "github-copilot-cli",
+        "id": "eaeadcb9-4369-46ec-8304-c581569c7aac",
+        "model": "auto"
+      },
+      "human_author": "Graham Brooks <graham@grahambrooks.com>"
+    }
+  }
+}
