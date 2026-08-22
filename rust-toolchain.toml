@@ -1,0 +1,12 @@
+# The toolchain every build uses, explicitly.
+#
+# Pinned so that a laptop, a CI runner and a release runner all compile with the
+# same compiler. tropism learned this the expensive way: a release failed on one
+# of six runners because that image shipped a rustc one release behind the
+# declared `rust-version`, and cargo refused before compiling anything.
+#
+# Keep `channel` in step with `rust-version` in Cargo.toml.
+
+[toolchain]
+channel = "1.97"
+components = ["rustfmt", "clippy"]

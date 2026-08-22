@@ -1,0 +1,66 @@
+# brake — a single crate that is both a library and a binary.
+#
+# Not a workspace, deliberately. The library is the product as much as the CLI
+# is: forge consumes it for the model-aware rules that need an architecture
+# model, and the `brake` binary is the pre-commit gate. A workspace would buy
+# nothing here except inter-crate version pinning, and cost a second manifest.
+# See design/03-implementation-plan.md §1.
+
+[package]
+name = "brake"
+# CalVer, YYYY.M.MICRO, committed rather than injected — MICRO counts the
+# releases already cut this month. The month carries no leading zero because
+# 2026.08.0 is not valid SemVer and cargo requires SemVer. Bump with
+# `make release`, never by hand.
+version = "2026.8.0"
+edition = "2024"
+license = "MIT"
+description = "A brake on breaking API changes. Checks OpenAPI, protobuf and GraphQL contracts for backward compatibility, hermetically."
+repository = "https://github.com/grahambrooks/brake"
+homepage = "https://github.com/grahambrooks/brake"
+keywords = ["openapi", "compatibility", "breaking-changes", "api", "lint"]
+categories = ["development-tools", "command-line-utilities"]
+# Tracks latest stable, and is pinned a second time in rust-toolchain.toml so a
+# laptop, CI and a release runner all compile with the same compiler. Declaring
+# a floor nothing is tested at is worse than declaring an honest one.
+rust-version = "1.97"
+
+[lib]
+name = "brake"
+path = "src/lib.rs"
+
+[[bin]]
+name = "brake"
+path = "src/main.rs"
+# The binary is a thin shell over the library. Everything testable lives in the
+# lib target so integration tests and forge reach the same code.
+required-features = ["cli"]
+
+[features]
+default = ["cli"]
+# The CLI's dependencies — argument parsing, and later the diagnostic renderer
+# and colour handling. A consumer embedding the library (forge) takes
+# `default-features = false` and gets the ingest/compare/rules core with no
+# argument parsing and no terminal handling.
+cli = ["dep:clap"]
+
+# Dependencies are added when the code that uses them is written, not ahead of
+# it — an unused dependency is a supply-chain liability and a lockfile churn
+# source for no benefit. The full set, and the reasoning behind each choice, is
+# design/03-implementation-plan.md §4. The one to settle before M2 is O1, the
+# YAML parser: source spans are required for SARIF locations, and `serde_yaml`
+# discards them.
+[dependencies]
+clap = { version = "4", features = ["derive"], optional = true }
+
+[dev-dependencies]
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }
+
+[profile.dist]
+inherits = "release"
+lto = "thin"
