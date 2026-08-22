@@ -1,0 +1,48 @@
+rust-toolchain.toml
+  s_41dddc61f15934::t_a0a62be3449dee 1-12
+README.md
+  s_41dddc61f15934::t_b1c92062fb1f3a 1-102
+CLAUDE.md
+  s_41dddc61f15934::t_07043ab67a53ae 1-107
+design/README.md
+  s_41dddc61f15934::t_4c728731de59c4 1-38
+src/main.rs
+  s_41dddc61f15934::t_6fadb28b65869b 1-108
+Cargo.toml
+  s_41dddc61f15934::t_9870cb2b854307 41-45
+  s_41dddc61f15934::t_a488568fa297ec 1-40,46,53,55-66
+  s_41dddc61f15934::t_f5aa23a8229ad8 47-52,54
+design/03-implementation-plan.md
+  s_41dddc61f15934::t_d8f0cc4b36190b 1-289
+src/lib.rs
+  s_41dddc61f15934::t_11babe1e76a122 1-77
+  s_41dddc61f15934::t_7353c34f4f0965 78-80
+.gitignore
+  s_41dddc61f15934::t_594bdb189b315d 1-4
+design/01-thesis.md
+  s_41dddc61f15934::t_812ec9d57c7016 1-177
+Makefile
+  s_41dddc61f15934::t_435614d93ec1a6 1-53
+design/02-contract-gates.md
+  s_41dddc61f15934::t_550b69f28982f9 1-374
+LICENSE
+  s_41dddc61f15934::t_af1436df15a8f9 1-21
+Cargo.lock
+  s_41dddc61f15934::t_dc0ad19e8afcb5 1-186
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.23",
+  "base_commit_sha": "035bab7b2f1acd60c4d1c3b4db130576383c9df7",
+  "prompts": {},
+  "sessions": {
+    "s_41dddc61f15934": {
+      "agent_id": {
+        "tool": "github-copilot-cli",
+        "id": "d83d441f-f6cf-49c4-8675-30d7c474cd44",
+        "model": "auto"
+      },
+      "human_author": "Graham Brooks <graham@grahambrooks.com>"
+    }
+  }
+}
