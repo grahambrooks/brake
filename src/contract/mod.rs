@@ -1,6 +1,8 @@
 use std::collections::BTreeMap;
 
+pub mod graphql;
 pub mod openapi;
+pub mod proto;
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct EndpointKey {
