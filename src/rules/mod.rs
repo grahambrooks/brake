@@ -1,423 +1,557 @@
+//! `Change` × `Level` → `Finding`.
+//!
+//! This module knows nothing about rendering. A `Finding` carries the facts; a
+//! renderer decides how they look.
+
 pub mod catalogue;
 
 use crate::Severity;
-use crate::compare::Change;
-use crate::config::Compatibility;
-use crate::config::Suppression;
+use crate::compare::{Change, ChangeKind};
+use crate::config::{Compatibility, Suppression};
 use crate::contract::Span;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Finding {
     pub rule_id: &'static str,
     pub severity: Severity,
+    /// Which configured contract this came from. Without it, a repository with
+    /// several contracts produces findings nobody can attribute.
+    pub contract: String,
     pub message: String,
     pub method: Option<String>,
     pub path: Option<String>,
+    /// A JSON pointer into the contract artifact, for SARIF fingerprints and
+    /// for suppressions that target a field structurally.
+    pub pointer: String,
     pub span: Option<Span>,
 }
 
-pub fn evaluate(changes: &[Change], level: Compatibility) -> Vec<Finding> {
-    let mut findings = Vec::with_capacity(changes.len());
-    for change in changes {
-        match change {
-            Change::EndpointRemoved { method, path, span } => findings.push(Finding {
-                rule_id: "endpoint-removed",
-                severity: Severity::Error,
-                message: format!("endpoint `{method} {path}` was removed"),
-                method: Some(method.clone()),
-                path: Some(path.clone()),
-                span: Some(span.clone()),
-            }),
-            Change::MethodRemoved { method, path, span } => findings.push(Finding {
-                rule_id: "method-removed",
-                severity: Severity::Error,
-                message: format!("method `{method}` was removed from path `{path}`"),
-                method: Some(method.clone()),
-                path: Some(path.clone()),
-                span: Some(span.clone()),
-            }),
-            Change::EndpointPathChanged {
-                operation_id,
-                method,
-                from_path,
-                to_path,
-                span,
-            } => findings.push(Finding {
-                rule_id: "endpoint-path-changed",
-                severity: Severity::Error,
-                message: format!(
-                    "operationId `{operation_id}` moved from `{method} {from_path}` to `{method} {to_path}`"
-                ),
-                method: Some(method.clone()),
-                path: Some(to_path.clone()),
-                span: Some(span.clone()),
-            }),
-            Change::ParamAddedRequired {
-                method,
-                path,
-                parameter,
-                span,
-            } => findings.push(Finding {
-                rule_id: "param-added-required",
-                severity: Severity::Error,
-                message: format!(
-                    "required parameter `{parameter}` was added to `{method} {path}`"
-                ),
-                method: Some(method.clone()),
-                path: Some(path.clone()),
-                span: Some(span.clone()),
-            }),
-            Change::ParamBecameRequired {
-                method,
-                path,
-                parameter,
-                span,
-            } => findings.push(Finding {
-                rule_id: "param-became-required",
-                severity: Severity::Error,
-                message: format!(
-                    "parameter `{parameter}` became required in `{method} {path}`"
-                ),
-                method: Some(method.clone()),
-                path: Some(path.clone()),
-                span: Some(span.clone()),
-            }),
-            Change::ParamRemoved {
-                method,
-                path,
-                parameter,
-                span,
-            } => findings.push(Finding {
-                rule_id: "param-removed",
-                severity: Severity::Warning,
-                message: format!("parameter `{parameter}` was removed from `{method} {path}`"),
-                method: Some(method.clone()),
-                path: Some(path.clone()),
-                span: Some(span.clone()),
-            }),
-            Change::ParamTypeNarrowed {
-                method,
-                path,
-                target,
-                reason,
-                span,
-            } => findings.push(Finding {
-                rule_id: "param-type-narrowed",
-                severity: Severity::Error,
-                message: format!("{target} narrowed in `{method} {path}`: {reason}"),
-                method: Some(method.clone()),
-                path: Some(path.clone()),
-                span: Some(span.clone()),
-            }),
-            Change::ResponseTypeChanged {
-                method,
-                path,
-                status,
-                reason,
-                span,
-            } => findings.push(Finding {
-                rule_id: "response-type-changed",
-                severity: Severity::Error,
-                message: format!(
-                    "response type changed for `{method} {path}` status `{status}`: {reason}"
-                ),
-                method: Some(method.clone()),
-                path: Some(path.clone()),
-                span: Some(span.clone()),
-            }),
-            Change::ResponseEnumExtended {
-                method,
-                path,
-                status,
-                span,
-            } => findings.push(Finding {
-                rule_id: "response-enum-extended",
-                severity: Severity::Warning,
-                message: format!(
-                    "response enum was extended for `{method} {path}` status `{status}`"
-                ),
-                method: Some(method.clone()),
-                path: Some(path.clone()),
-                span: Some(span.clone()),
-            }),
-            Change::ResponseStatusRemoved {
-                method,
-                path,
-                status,
-                span,
-            } => findings.push(Finding {
-                rule_id: "response-status-removed",
-                severity: Severity::Error,
-                message: format!(
-                    "response status `{status}` was removed from `{method} {path}`"
-                ),
-                method: Some(method.clone()),
-                path: Some(path.clone()),
-                span: Some(span.clone()),
-            }),
-        }
+impl Finding {
+    /// `GET /payments/{id}`, the form a suppression's `endpoint` matches.
+    #[must_use]
+    pub fn endpoint(&self) -> Option<String> {
+        Some(format!("{} {}", self.method.as_ref()?, self.path.as_ref()?))
     }
-
-    findings
-        .into_iter()
-        .filter(|finding| level >= minimum_level(finding.rule_id))
-        .collect()
 }
 
+/// Turn changes into findings, dropping those the selected level does not ask
+/// about.
+///
+/// A rule outside the level does not fire at all rather than being downgraded
+/// to a warning, because a warning is a thing a human has to read and dismiss.
+#[must_use]
+pub fn evaluate(changes: &[Change], contract: &str, level: Compatibility) -> Vec<Finding> {
+    let mut findings = Vec::with_capacity(changes.len());
+    for change in changes {
+        let rule = catalogue::rule_for(change.kind);
+        if level < rule.level {
+            continue;
+        }
+        findings.push(Finding {
+            rule_id: rule.id,
+            severity: rule.severity,
+            contract: contract.to_owned(),
+            message: message_for(change),
+            method: change.endpoint.as_ref().map(|key| key.method.clone()),
+            path: change.endpoint.as_ref().map(|key| key.path.clone()),
+            pointer: change.pointer.clone(),
+            span: Some(change.span.clone()),
+        });
+    }
+    findings.sort();
+    findings.dedup();
+    findings
+}
+
+fn message_for(change: &Change) -> String {
+    let where_ = change
+        .endpoint
+        .as_ref()
+        .map(|key| format!("{} {}", key.method, key.path));
+    let detail = change.detail.trim();
+
+    let core = match change.kind {
+        ChangeKind::EndpointRemoved => format!(
+            "endpoint `{}` was removed",
+            where_.clone().unwrap_or_default()
+        ),
+        ChangeKind::MethodRemoved => {
+            let key = change.endpoint.as_ref();
+            format!(
+                "method `{}` was removed from `{}`",
+                key.map(|k| k.method.as_str()).unwrap_or_default(),
+                key.map(|k| k.path.as_str()).unwrap_or_default()
+            )
+        }
+        ChangeKind::EndpointPathChanged | ChangeKind::PathParameterRenamed => detail.to_owned(),
+        ChangeKind::EndpointAdded => format!(
+            "endpoint `{}` was added",
+            where_.clone().unwrap_or_default()
+        ),
+        ChangeKind::OperationIdChanged => format!("operationId changed: {detail}"),
+        ChangeKind::ParamAddedRequired => format!("required input added: {detail}"),
+        ChangeKind::ParamBecameRequired => format!("`{detail}` became required"),
+        ChangeKind::ParamRemoved => format!("parameter `{detail}` was removed"),
+        ChangeKind::ParamTypeNarrowed => format!("request narrowed: {detail}"),
+        ChangeKind::ParamLocationChanged => detail.to_owned(),
+        ChangeKind::ParamAddedOptional => format!("optional input added: {detail}"),
+        ChangeKind::RequestMediaTypeRemoved => {
+            format!("request media type `{detail}` is no longer accepted")
+        }
+        ChangeKind::ResponseFieldRemoved => format!("response field removed: {detail}"),
+        ChangeKind::ResponseFieldOptional => format!("response field became optional: {detail}"),
+        ChangeKind::ResponseFieldAdded => format!("response field added: {detail}"),
+        ChangeKind::ResponseTypeChanged => format!("response type changed: {detail}"),
+        ChangeKind::ResponseEnumExtended => format!("response enum extended: {detail}"),
+        ChangeKind::ResponseStatusRemoved => format!("response status `{detail}` was removed"),
+        ChangeKind::ResponseStatusAdded => format!("response status `{detail}` was added"),
+        ChangeKind::ResponseMediaTypeRemoved => format!("response media type removed: {detail}"),
+        ChangeKind::FieldRenamed => format!("field renamed: {detail}"),
+        ChangeKind::FieldNumberChanged => format!("wire number changed: {detail}"),
+        ChangeKind::SecurityAdded => format!("security requirement added: {detail}"),
+        ChangeKind::SecurityRemoved => format!("security requirement removed: {detail}"),
+        ChangeKind::SecuritySchemeChanged => format!("security scheme changed: {detail}"),
+        ChangeKind::RemovedWithoutDeprecation => {
+            format!("{detail} was removed without being deprecated first")
+        }
+        ChangeKind::DeprecatedNoSunset => format!(
+            "`{}` is deprecated with no `x-sunset` date",
+            where_.clone().unwrap_or_default()
+        ),
+        ChangeKind::ContractPartial => format!("not fully verified — {detail}"),
+    };
+
+    match (&where_, change.kind) {
+        // The endpoint is already in the text for these.
+        (
+            _,
+            ChangeKind::EndpointRemoved
+            | ChangeKind::MethodRemoved
+            | ChangeKind::EndpointAdded
+            | ChangeKind::EndpointPathChanged
+            | ChangeKind::PathParameterRenamed
+            | ChangeKind::DeprecatedNoSunset
+            | ChangeKind::RemovedWithoutDeprecation,
+        ) => core,
+        (Some(endpoint), _) => format!("{core} in `{endpoint}`"),
+        (None, _) => core,
+    }
+}
+
+#[must_use]
 pub fn contract_unreachable(contract: &str, details: &str, span: Option<Span>) -> Finding {
     Finding {
         rule_id: "contract-unreachable",
         severity: Severity::Error,
+        contract: contract.to_owned(),
         message: format!("contract `{contract}` is unreachable: {details}"),
         method: None,
         path: None,
+        pointer: String::new(),
         span,
     }
 }
 
+/// Build a finding for a rule that has no `Change` behind it — drift, and the
+/// suppression-hygiene rules.
+#[must_use]
+pub fn synthetic(rule_id: &'static str, contract: &str, message: String) -> Finding {
+    let rule = catalogue::lookup(rule_id).expect("synthetic findings use catalogued rules");
+    Finding {
+        rule_id: rule.id,
+        severity: rule.severity,
+        contract: contract.to_owned(),
+        message,
+        method: None,
+        path: None,
+        pointer: String::new(),
+        span: None,
+    }
+}
+
+/// Apply a contract's suppressions.
+///
+/// `report_stale` is off for a scoped run: a suppression for a contract or an
+/// endpoint that this run never looked at legitimately matches nothing, and
+/// reporting it as dead would make suppressions unusable in a pre-commit hook.
+#[must_use]
 pub fn apply_suppressions(
     findings: Vec<Finding>,
+    contract: &str,
     suppressions: &[Suppression],
     as_of: Option<&str>,
+    report_stale: bool,
 ) -> Vec<Finding> {
     let mut output = Vec::new();
     let mut matched = vec![false; suppressions.len()];
 
     for finding in findings {
-        let mut suppressed = false;
-        for (index, suppression) in suppressions.iter().enumerate() {
-            if suppression.rule != finding.rule_id {
-                continue;
-            }
-            if let Some(endpoint) = &suppression.endpoint
-                && finding_endpoint(&finding).as_deref() != Some(endpoint.as_str())
-            {
-                continue;
-            }
-            if let Some(field) = &suppression.field
-                && !finding.message.contains(field)
-            {
-                continue;
-            }
-
-            matched[index] = true;
-            if suppression_is_expired(suppression, as_of) {
-                output.push(Finding {
-                    rule_id: "expired-allow",
-                    severity: Severity::Error,
-                    message: format!(
-                        "suppression for `{}` expired on `{}`",
-                        suppression.rule,
-                        suppression.expires.as_deref().unwrap_or("unknown")
-                    ),
-                    method: finding.method.clone(),
-                    path: finding.path.clone(),
-                    span: finding.span.clone(),
-                });
-            } else {
-                suppressed = true;
-            }
-            break;
-        }
-
-        if !suppressed {
+        // An integrity finding is never suppressible: a suppression that could
+        // hide `contract-unreachable` would let the gate stop gating silently.
+        if matches!(
+            finding.rule_id,
+            "contract-unreachable" | "stale-allow" | "expired-allow"
+        ) {
             output.push(finding);
+            continue;
         }
-    }
 
-    for (index, suppression) in suppressions.iter().enumerate() {
-        if !matched[index] {
+        let Some(index) = suppressions
+            .iter()
+            .position(|suppression| suppression_matches(suppression, &finding))
+        else {
+            output.push(finding);
+            continue;
+        };
+        matched[index] = true;
+
+        if suppression_is_expired(&suppressions[index], as_of) {
             output.push(Finding {
-                rule_id: "stale-allow",
+                rule_id: "expired-allow",
                 severity: Severity::Error,
+                contract: contract.to_owned(),
                 message: format!(
-                    "suppression for rule `{}` no longer matches any finding",
-                    suppression.rule
+                    "suppression for `{}` expired on `{}` — it no longer applies to: {}",
+                    suppressions[index].rule,
+                    suppressions[index].expires.as_deref().unwrap_or("unknown"),
+                    finding.message
                 ),
-                method: None,
-                path: None,
-                span: None,
+                ..finding
             });
         }
     }
 
+    if report_stale {
+        for (index, suppression) in suppressions.iter().enumerate() {
+            if !matched[index] {
+                output.push(synthetic(
+                    "stale-allow",
+                    contract,
+                    format!(
+                        "suppression for rule `{}`{} matched nothing (reason given: {})",
+                        suppression.rule,
+                        suppression
+                            .endpoint
+                            .as_ref()
+                            .map(|endpoint| format!(" on `{endpoint}`"))
+                            .unwrap_or_default(),
+                        suppression.reason
+                    ),
+                ));
+            }
+        }
+    }
+
+    output.sort();
+    output.dedup();
     output
 }
 
-fn minimum_level(rule_id: &str) -> Compatibility {
-    match rule_id {
-        "response-status-removed" | "response-enum-extended" => Compatibility::WireJson,
-        _ => Compatibility::Wire,
+fn suppression_matches(suppression: &Suppression, finding: &Finding) -> bool {
+    if suppression.rule != finding.rule_id {
+        return false;
     }
+    if let Some(endpoint) = &suppression.endpoint
+        && finding.endpoint().as_deref() != Some(endpoint.as_str())
+    {
+        return false;
+    }
+    if let Some(field) = &suppression.field
+        && !pointer_names(&finding.pointer).any(|segment| segment == *field)
+    {
+        // Matching on the rendered message would let `field = "id"` suppress
+        // anything whose message happens to contain those two letters.
+        return false;
+    }
+    true
 }
 
-fn finding_endpoint(finding: &Finding) -> Option<String> {
-    Some(format!(
-        "{} {}",
-        finding.method.as_ref()?,
-        finding.path.as_ref()?
-    ))
+/// The decoded segments of a JSON pointer.
+fn pointer_names(pointer: &str) -> impl Iterator<Item = String> + '_ {
+    pointer
+        .split('/')
+        .filter(|segment| !segment.is_empty())
+        .map(|segment| segment.replace("~1", "/").replace("~0", "~"))
 }
 
 fn suppression_is_expired(suppression: &Suppression, as_of: Option<&str>) -> bool {
-    let Some(expires) = suppression.expires.as_deref() else {
+    let (Some(expires), Some(as_of)) = (suppression.expires.as_deref(), as_of) else {
         return false;
     };
-    let Some(as_of) = as_of else {
-        return false;
-    };
-    parse_date(expires)
-        .zip(parse_date(as_of))
-        .is_some_and(|(expiry, now)| now > expiry)
+    match (parse_date(expires), parse_date(as_of)) {
+        (Some(expiry), Some(now)) => now > expiry,
+        // A date brake cannot read is treated as already expired rather than
+        // as never expiring: the failure is loud instead of silent.
+        _ => true,
+    }
 }
 
-fn parse_date(date: &str) -> Option<(u32, u32, u32)> {
-    let mut parts = date.split('-');
-    let year = parts.next()?.parse().ok()?;
-    let month = parts.next()?.parse().ok()?;
-    let day = parts.next()?.parse().ok()?;
+/// Parse `YYYY-MM-DD` into a comparable tuple.
+///
+/// Ordering is all that is needed, so no calendar arithmetic is involved.
+#[must_use]
+pub fn parse_date(date: &str) -> Option<(u32, u32, u32)> {
+    let mut parts = date.trim().split('-');
+    let year: u32 = parts.next()?.parse().ok()?;
+    let month: u32 = parts.next()?.parse().ok()?;
+    let day: u32 = parts.next()?.parse().ok()?;
+    if parts.next().is_some() || !(1..=12).contains(&month) || !(1..=31).contains(&day) {
+        return None;
+    }
     Some((year, month, day))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::compare::ChangeKind;
+    use crate::contract::EndpointKey;
 
     fn sample_span() -> Span {
-        Span {
-            file: "api/openapi.yaml".to_owned(),
-            line: 2,
-            column: 3,
-            pointer: "/paths/~1payments/get".to_owned(),
+        Span::new("api/openapi.yaml", 2, 3, "/paths/~1payments/get")
+    }
+
+    fn change(kind: ChangeKind, detail: &str, pointer: &str) -> Change {
+        Change {
+            kind,
+            endpoint: Some(EndpointKey {
+                method: "GET".to_owned(),
+                path: "/payments/{id}".to_owned(),
+            }),
+            pointer: pointer.to_owned(),
+            detail: detail.to_owned(),
+            span: sample_span(),
+        }
+    }
+
+    fn finding(rule_id: &'static str, pointer: &str) -> Finding {
+        Finding {
+            rule_id,
+            severity: Severity::Error,
+            contract: "payments".to_owned(),
+            message: "something happened".to_owned(),
+            method: Some("GET".to_owned()),
+            path: Some("/payments/{id}".to_owned()),
+            pointer: pointer.to_owned(),
+            span: Some(sample_span()),
+        }
+    }
+
+    fn suppression(rule: &str, endpoint: Option<&str>, field: Option<&str>) -> Suppression {
+        Suppression {
+            rule: rule.to_owned(),
+            endpoint: endpoint.map(ToOwned::to_owned),
+            field: field.map(ToOwned::to_owned),
+            reason: "accepted after a deprecation window".to_owned(),
+            expires: None,
         }
     }
 
     #[test]
-    fn maps_endpoint_removed_to_rule() {
-        let changes = vec![Change::EndpointRemoved {
-            method: "GET".to_owned(),
-            path: "/payments/{id}".to_owned(),
-            span: sample_span(),
-        }];
-        let findings = evaluate(&changes, Compatibility::Wire);
-
+    fn maps_a_change_to_its_rule_and_carries_the_contract() {
+        let findings = evaluate(
+            &[change(ChangeKind::EndpointRemoved, "", "/paths/~1p/get")],
+            "payments",
+            Compatibility::Wire,
+        );
         assert_eq!(findings.len(), 1);
         assert_eq!(findings[0].rule_id, "endpoint-removed");
         assert_eq!(findings[0].severity, Severity::Error);
+        assert_eq!(findings[0].contract, "payments");
+        assert!(findings[0].message.contains("GET /payments/{id}"));
     }
 
     #[test]
-    fn maps_method_removed_to_rule() {
-        let changes = vec![Change::MethodRemoved {
-            method: "POST".to_owned(),
-            path: "/payments".to_owned(),
-            span: sample_span(),
-        }];
-        let findings = evaluate(&changes, Compatibility::Wire);
-
-        assert_eq!(findings[0].rule_id, "method-removed");
-        assert_eq!(findings[0].severity, Severity::Error);
+    fn wire_level_hides_a_wire_json_rule() {
+        let changes = [change(ChangeKind::ResponseFieldRemoved, "field `x`", "/p")];
+        assert!(evaluate(&changes, "c", Compatibility::Wire).is_empty());
+        assert_eq!(evaluate(&changes, "c", Compatibility::WireJson).len(), 1);
     }
 
     #[test]
-    fn maps_endpoint_path_changed_to_rule() {
-        let changes = vec![Change::EndpointPathChanged {
-            operation_id: "getPayment".to_owned(),
-            method: "GET".to_owned(),
-            from_path: "/payments/{id}".to_owned(),
-            to_path: "/payments/{payment_id}".to_owned(),
-            span: sample_span(),
-        }];
-        let findings = evaluate(&changes, Compatibility::Wire);
-
-        assert_eq!(findings[0].rule_id, "endpoint-path-changed");
-        assert_eq!(findings[0].severity, Severity::Error);
-        assert!(findings[0].message.contains("operationId `getPayment`"));
+    fn surface_level_adds_generated_client_rules() {
+        let changes = [change(
+            ChangeKind::OperationIdChanged,
+            "`a` became `b`",
+            "/p",
+        )];
+        assert!(evaluate(&changes, "c", Compatibility::WireJson).is_empty());
+        assert_eq!(evaluate(&changes, "c", Compatibility::Surface).len(), 1);
     }
 
     #[test]
-    fn creates_contract_unreachable_finding() {
-        let finding = contract_unreachable("payments", "file not found", Some(sample_span()));
-
-        assert_eq!(finding.rule_id, "contract-unreachable");
-        assert_eq!(finding.severity, Severity::Error);
+    fn strict_level_adds_purely_additive_rules() {
+        let changes = [change(ChangeKind::ResponseFieldAdded, "field `x`", "/p")];
+        assert!(evaluate(&changes, "c", Compatibility::Surface).is_empty());
+        assert_eq!(evaluate(&changes, "c", Compatibility::Strict).len(), 1);
     }
 
     #[test]
-    fn maps_request_response_changes_to_rules() {
-        let changes = vec![
-            Change::ParamAddedRequired {
-                method: "POST".to_owned(),
-                path: "/payments".to_owned(),
-                parameter: "query:mode".to_owned(),
-                span: sample_span(),
-            },
-            Change::ResponseEnumExtended {
-                method: "GET".to_owned(),
-                path: "/payments/{id}".to_owned(),
-                status: "200".to_owned(),
-                span: sample_span(),
-            },
+    fn each_level_is_a_superset_of_the_one_below() {
+        let changes = [
+            change(ChangeKind::EndpointRemoved, "", "/a"),
+            change(ChangeKind::ResponseFieldRemoved, "field `x`", "/b"),
+            change(ChangeKind::OperationIdChanged, "`a` became `b`", "/c"),
+            change(ChangeKind::ResponseFieldAdded, "field `y`", "/d"),
         ];
+        let counts = [
+            Compatibility::Wire,
+            Compatibility::WireJson,
+            Compatibility::Surface,
+            Compatibility::Strict,
+        ]
+        .map(|level| evaluate(&changes, "c", level).len());
 
-        let findings = evaluate(&changes, Compatibility::WireJson);
-        assert!(
-            findings
-                .iter()
-                .any(|finding| finding.rule_id == "param-added-required")
+        assert_eq!(counts, [1, 2, 3, 4], "levels must differ and nest");
+    }
+
+    #[test]
+    fn suppression_hides_a_matching_finding() {
+        let output = apply_suppressions(
+            vec![finding("endpoint-removed", "/paths/~1p/get")],
+            "payments",
+            &[suppression(
+                "endpoint-removed",
+                Some("GET /payments/{id}"),
+                None,
+            )],
+            None,
+            true,
         );
+        assert!(output.is_empty(), "{output:?}");
+    }
+
+    #[test]
+    fn suppression_for_another_endpoint_does_not_match() {
+        let output = apply_suppressions(
+            vec![finding("endpoint-removed", "/paths/~1p/get")],
+            "payments",
+            &[suppression("endpoint-removed", Some("GET /other"), None)],
+            None,
+            false,
+        );
+        assert_eq!(output.len(), 1);
+        assert_eq!(output[0].rule_id, "endpoint-removed");
+    }
+
+    #[test]
+    fn field_suppression_matches_a_pointer_segment_not_a_substring() {
+        let target = finding(
+            "response-field-removed",
+            "/paths/~1p/get/responses/200/content/application~1json/legacy_reference",
+        );
+        let other = finding(
+            "response-field-removed",
+            "/paths/~1p/get/responses/200/content/application~1json/customer_id",
+        );
+
+        let suppression = suppression("response-field-removed", None, Some("legacy_reference"));
         assert!(
-            findings
-                .iter()
-                .any(|finding| finding.rule_id == "response-enum-extended")
+            apply_suppressions(
+                vec![target],
+                "c",
+                std::slice::from_ref(&suppression),
+                None,
+                false
+            )
+            .is_empty()
+        );
+        // The same suppression must not swallow a different field.
+        assert_eq!(
+            apply_suppressions(vec![other], "c", &[suppression], None, false).len(),
+            1
         );
     }
 
     #[test]
-    fn filters_rules_by_compatibility_level() {
-        let changes = vec![Change::ResponseStatusRemoved {
-            method: "GET".to_owned(),
-            path: "/payments/{id}".to_owned(),
-            status: "200".to_owned(),
-            span: sample_span(),
-        }];
-
-        let wire_findings = evaluate(&changes, Compatibility::Wire);
-        let wire_json_findings = evaluate(&changes, Compatibility::WireJson);
-        assert!(wire_findings.is_empty());
-        assert_eq!(wire_json_findings.len(), 1);
-        assert_eq!(wire_json_findings[0].rule_id, "response-status-removed");
+    fn a_short_field_name_does_not_suppress_unrelated_findings() {
+        // `id` appears inside `customer_id`; a substring match would hide it.
+        let unrelated = finding("response-field-removed", "/responses/200/customer_id");
+        let output = apply_suppressions(
+            vec![unrelated],
+            "c",
+            &[suppression("response-field-removed", None, Some("id"))],
+            None,
+            false,
+        );
+        assert_eq!(output.len(), 1);
     }
 
     #[test]
-    fn applies_suppressions_with_stale_and_expired_detection() {
-        let findings = vec![Finding {
-            rule_id: "endpoint-removed",
-            severity: Severity::Error,
-            message: "endpoint `GET /payments/{id}` was removed".to_owned(),
-            method: Some("GET".to_owned()),
-            path: Some("/payments/{id}".to_owned()),
-            span: Some(sample_span()),
-        }];
-        let suppressions = vec![
-            Suppression {
-                rule: "endpoint-removed".to_owned(),
-                endpoint: Some("GET /payments/{id}".to_owned()),
-                field: None,
-                reason: "accepted".to_owned(),
-                expires: Some("2026-01-01".to_owned()),
-            },
-            Suppression {
-                rule: "method-removed".to_owned(),
-                endpoint: Some("POST /payments".to_owned()),
-                field: None,
-                reason: "obsolete".to_owned(),
-                expires: None,
-            },
-        ];
+    fn integrity_findings_cannot_be_suppressed() {
+        let output = apply_suppressions(
+            vec![contract_unreachable("payments", "file missing", None)],
+            "payments",
+            &[suppression("contract-unreachable", None, None)],
+            None,
+            false,
+        );
+        assert_eq!(output.len(), 1);
+        assert_eq!(output[0].rule_id, "contract-unreachable");
+    }
 
-        let filtered = apply_suppressions(findings, &suppressions, Some("2026-02-01"));
-        assert!(filtered.iter().any(|f| f.rule_id == "expired-allow"));
-        assert!(filtered.iter().any(|f| f.rule_id == "stale-allow"));
+    #[test]
+    fn expired_suppression_reports_instead_of_hiding() {
+        let mut expiring = suppression("endpoint-removed", Some("GET /payments/{id}"), None);
+        expiring.expires = Some("2026-01-01".to_owned());
+
+        let output = apply_suppressions(
+            vec![finding("endpoint-removed", "/p")],
+            "payments",
+            &[expiring.clone()],
+            Some("2026-02-01"),
+            true,
+        );
+        assert_eq!(output.len(), 1);
+        assert_eq!(output[0].rule_id, "expired-allow");
+
+        // Before the expiry date it still suppresses.
+        let output = apply_suppressions(
+            vec![finding("endpoint-removed", "/p")],
+            "payments",
+            &[expiring],
+            Some("2025-12-01"),
+            true,
+        );
+        assert!(output.is_empty());
+    }
+
+    #[test]
+    fn an_unreadable_expiry_date_expires_rather_than_never_expiring() {
+        let mut broken = suppression("endpoint-removed", None, None);
+        broken.expires = Some("soon".to_owned());
+
+        let output = apply_suppressions(
+            vec![finding("endpoint-removed", "/p")],
+            "c",
+            &[broken],
+            Some("2026-02-01"),
+            false,
+        );
+        assert_eq!(output[0].rule_id, "expired-allow");
+    }
+
+    #[test]
+    fn stale_suppressions_are_reported_only_when_asked() {
+        let unused = [suppression("method-removed", Some("POST /elsewhere"), None)];
+
+        let scoped = apply_suppressions(Vec::new(), "c", &unused, None, false);
+        assert!(
+            scoped.is_empty(),
+            "a scoped run must not call a suppression dead just because it was out of scope"
+        );
+
+        let whole_repository = apply_suppressions(Vec::new(), "c", &unused, None, true);
+        assert_eq!(whole_repository.len(), 1);
+        assert_eq!(whole_repository[0].rule_id, "stale-allow");
+        assert!(whole_repository[0].message.contains("deprecation window"));
+    }
+
+    #[test]
+    fn parses_and_rejects_dates() {
+        assert_eq!(parse_date("2026-09-01"), Some((2026, 9, 1)));
+        assert!(parse_date("2026-13-01").is_none());
+        assert!(parse_date("2026-09").is_none());
+        assert!(parse_date("not-a-date").is_none());
     }
 }

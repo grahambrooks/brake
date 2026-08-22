@@ -7,21 +7,25 @@ use crate::config::{Baseline, ContractConfig, Defaults};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ResolvedBaseline {
-    pub path: PathBuf,
+    /// How the baseline is named in output: a repository-relative path for a
+    /// file, or a `git:`/`merge-base:` descriptor for a blob. Never absolute —
+    /// an absolute path in a span would break guarantees G4 and G6.
+    pub label: String,
     pub bytes: Vec<u8>,
 }
 
+/// Resolve the baseline for a contract, honouring a command-line override.
 pub fn resolve_for_contract(
     repo_root: &Path,
     defaults: &Defaults,
     contract: &ContractConfig,
+    override_baseline: Option<&Baseline>,
 ) -> Result<ResolvedBaseline, BaselineError> {
-    let baseline =
-        contract
-            .effective_baseline(defaults)
-            .ok_or_else(|| BaselineError::MissingBaseline {
-                contract: contract.name.clone(),
-            })?;
+    let baseline = override_baseline
+        .or_else(|| contract.effective_baseline(defaults))
+        .ok_or_else(|| BaselineError::MissingBaseline {
+            contract: contract.name.clone(),
+        })?;
 
     match baseline {
         Baseline::File(file) => resolve_file_baseline(repo_root, contract, file),
@@ -40,10 +44,13 @@ fn resolve_file_baseline(
     let path = repo_root.join(file);
     let bytes = fs::read(&path).map_err(|source| BaselineError::ReadFile {
         contract: contract.name.clone(),
-        path: path.clone(),
+        path: file.to_path_buf(),
         source,
     })?;
-    Ok(ResolvedBaseline { path, bytes })
+    Ok(ResolvedBaseline {
+        label: crate::check::display_path(file),
+        bytes,
+    })
 }
 
 fn resolve_git_baseline(
@@ -80,7 +87,7 @@ fn resolve_git_baseline(
         })?;
 
     Ok(ResolvedBaseline {
-        path: PathBuf::from(format!("git:{spec}")),
+        label: format!("git:{spec}"),
         bytes: blob.take_data(),
     })
 }
@@ -172,10 +179,10 @@ fn resolve_git_merge_base_baseline(
             })?;
 
     Ok(ResolvedBaseline {
-        path: PathBuf::from(format!(
+        label: format!(
             "merge-base:{reference}:{}",
-            contract.source.display()
-        )),
+            crate::check::display_path(&contract.source)
+        ),
         bytes: blob.take_data(),
     })
 }
@@ -301,9 +308,15 @@ mod tests {
         ))));
 
         let resolved =
-            resolve_for_contract(root.path(), &defaults, &contract).expect("file baseline");
+            resolve_for_contract(root.path(), &defaults, &contract, None).expect("file baseline");
 
-        assert_eq!(resolved.path, baseline_path);
+        assert_eq!(resolved.label, "api/payments.baseline.yaml");
+        assert!(
+            !resolved
+                .label
+                .contains(&root.path().to_string_lossy().to_string()),
+            "a baseline label must never carry the absolute checkout path"
+        );
         assert_eq!(resolved.bytes, b"openapi: 3.1.0");
     }
 
@@ -321,9 +334,10 @@ mod tests {
         let contract = contract_with(None);
 
         let resolved =
-            resolve_for_contract(root.path(), &defaults, &contract).expect("file baseline");
+            resolve_for_contract(root.path(), &defaults, &contract, None).expect("file baseline");
 
-        assert_eq!(resolved.path, baseline_path);
+        assert_eq!(resolved.label, "api/default.baseline.yaml");
+        assert!(baseline_path.exists());
     }
 
     #[test]
@@ -355,7 +369,7 @@ mod tests {
         }));
 
         let resolved =
-            resolve_for_contract(root.path(), &defaults, &contract).expect("git baseline");
+            resolve_for_contract(root.path(), &defaults, &contract, None).expect("git baseline");
         let content = String::from_utf8(resolved.bytes).expect("utf-8 baseline");
         assert!(content.contains("title: baseline"));
     }
@@ -400,8 +414,8 @@ mod tests {
             }),
         };
         let contract = contract_with(None);
-        let resolved =
-            resolve_for_contract(root.path(), &defaults, &contract).expect("merge-base baseline");
+        let resolved = resolve_for_contract(root.path(), &defaults, &contract, None)
+            .expect("merge-base baseline");
 
         let content = String::from_utf8(resolved.bytes).expect("utf-8 baseline");
         assert!(content.contains("title: base"));
@@ -416,7 +430,7 @@ mod tests {
         };
         let contract = contract_with(None);
 
-        let error = resolve_for_contract(root.path(), &defaults, &contract)
+        let error = resolve_for_contract(root.path(), &defaults, &contract, None)
             .expect_err("missing baseline must error");
         assert!(matches!(error, BaselineError::MissingBaseline { .. }));
     }
@@ -442,7 +456,7 @@ mod tests {
             spec: "does-not-exist:api/payments-openapi.yaml".to_owned(),
         }));
 
-        let error = resolve_for_contract(root.path(), &defaults, &contract)
+        let error = resolve_for_contract(root.path(), &defaults, &contract, None)
             .expect_err("invalid git spec must error");
         assert!(matches!(error, BaselineError::ResolveGitSpec { .. }));
     }

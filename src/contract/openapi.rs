@@ -1,10 +1,17 @@
+//! OpenAPI 3.0 / 3.1 → `Contract`.
+//!
+//! Ingest is bytes-only: no filesystem, no network, ever. A `$ref` that would
+//! require either is refused and named, never fetched and never silently
+//! dropped. See `design/02-contract-gates.md` §6.1.
+
 use std::collections::{BTreeMap, BTreeSet};
 
 use saphyr::{LoadableYamlNode, MarkedYamlOwned, ScalarOwned, YamlDataOwned};
 use thiserror::Error;
 
 use super::{
-    Contract, Endpoint, EndpointKey, Field, Parameter, Payload, Span, TypeRef, UnmodelledKind,
+    Constraints, Contract, Endpoint, EndpointKey, Field, Parameter, Payload, SecurityRequirement,
+    SecurityScheme, Span, TypeRef, Unmodelled, UnmodelledKind,
 };
 
 const HTTP_METHODS: &[(&str, &str)] = &[
@@ -32,6 +39,37 @@ pub enum OpenApiError {
     },
     #[error("OpenAPI document `{contract_source}` does not contain a root mapping")]
     RootNotMapping { contract_source: String },
+    #[error(
+        "OpenAPI document `{contract_source}` declares no `openapi` version; \
+         Swagger 2.0 (`swagger: \"2.0\"`) is not supported"
+    )]
+    MissingVersion { contract_source: String },
+    #[error(
+        "OpenAPI document `{contract_source}` declares unsupported version `{version}`; \
+         brake supports 3.0 and 3.1"
+    )]
+    UnsupportedVersion {
+        contract_source: String,
+        version: String,
+    },
+    #[error("OpenAPI document `{contract_source}` has no `paths` object")]
+    MissingPaths { contract_source: String },
+    #[error(
+        "`$ref` `{reference}` in `{contract_source}` resolves over the network. \
+         brake never makes a network request: remote refs are refused, not fetched"
+    )]
+    RemoteRef {
+        contract_source: String,
+        reference: String,
+    },
+    #[error(
+        "`$ref` `{reference}` in `{contract_source}` escapes the directory containing the \
+         contract source. Local refs resolve only within that tree"
+    )]
+    EscapingRef {
+        contract_source: String,
+        reference: String,
+    },
 }
 
 pub fn ingest(source: &str, bytes: &[u8]) -> Result<Contract, OpenApiError> {
@@ -47,35 +85,59 @@ pub fn ingest(source: &str, bytes: &[u8]) -> Result<Contract, OpenApiError> {
     let root = docs.first().ok_or_else(|| OpenApiError::RootNotMapping {
         contract_source: source.to_owned(),
     })?;
-    let paths = get_map_value(root, "paths").ok_or_else(|| OpenApiError::RootNotMapping {
+    if root.data.as_mapping().is_none() {
+        return Err(OpenApiError::RootNotMapping {
+            contract_source: source.to_owned(),
+        });
+    }
+    check_version(source, root)?;
+
+    let paths = get_map_value(root, "paths").ok_or_else(|| OpenApiError::MissingPaths {
         contract_source: source.to_owned(),
     })?;
     let path_map = paths
         .data
         .as_mapping()
-        .ok_or_else(|| OpenApiError::RootNotMapping {
+        .ok_or_else(|| OpenApiError::MissingPaths {
             contract_source: source.to_owned(),
         })?;
 
-    let context = OpenApiContext { source, root };
+    let mut ctx = Ctx {
+        source,
+        root,
+        ref_stack: Vec::new(),
+        unmodelled: Vec::new(),
+        fatal: None,
+    };
+
+    let default_security = parse_security(root);
     let mut contract = Contract::empty();
+    contract.security_schemes = ctx.parse_security_schemes();
+
     for (path_key, path_item) in path_map {
         let Some(path) = string_node(path_key) else {
             continue;
         };
+        let path_item = ctx.follow_ref(path_item);
         let Some(path_item_map) = path_item.data.as_mapping() else {
             continue;
         };
+        let escaped_path = escape_json_pointer(path);
+
+        // Parameters declared on the path item apply to every operation under
+        // it. Dropping them made every shared `{id}` invisible to the gate.
+        let shared_parameters =
+            ctx.parse_parameters(path_item, &format!("/paths/{escaped_path}"), &[]);
 
         for (method_key, method_name) in HTTP_METHODS {
             let Some(operation) = path_item_map.get(&yaml_string(method_key)) else {
                 continue;
             };
-            let Some(_operation_map) = operation.data.as_mapping() else {
+            if operation.data.as_mapping().is_none() {
                 continue;
-            };
+            }
 
-            let pointer = format!("/paths/{}/{method_key}", escape_json_pointer(path));
+            let pointer = format!("/paths/{escaped_path}/{method_key}");
             let operation_span = span(source, operation, pointer.clone());
             let operation_id = get_map_value(operation, "operationId")
                 .and_then(string_node)
@@ -83,10 +145,15 @@ pub fn ingest(source: &str, bytes: &[u8]) -> Result<Contract, OpenApiError> {
             let deprecated = get_map_value(operation, "deprecated")
                 .and_then(bool_node)
                 .unwrap_or(false);
+            let sunset = get_map_value(operation, "x-sunset")
+                .and_then(scalar_repr)
+                .or_else(|| get_map_value(path_item, "x-sunset").and_then(scalar_repr));
 
-            let request = parse_request_payload(&context, operation, &pointer);
-            let parameters = parse_parameters(&context, operation, &pointer);
-            let responses = parse_responses(&context, operation, &pointer);
+            let parameters = ctx.parse_parameters(operation, &pointer, &shared_parameters);
+            let request = ctx.parse_request_payload(operation, &pointer);
+            let responses = ctx.parse_responses(operation, &pointer);
+            let security = parse_security(operation)
+                .unwrap_or_else(|| default_security.clone().unwrap_or_default());
 
             contract.endpoints.insert(
                 EndpointKey {
@@ -96,335 +163,754 @@ pub fn ingest(source: &str, bytes: &[u8]) -> Result<Contract, OpenApiError> {
                 Endpoint {
                     operation_id,
                     deprecated,
+                    sunset,
                     parameters,
                     request,
                     responses,
-                    security: Vec::new(),
+                    security,
                     span: operation_span,
                 },
             );
         }
     }
 
+    if let Some(error) = ctx.fatal {
+        return Err(error);
+    }
+    contract.unmodelled = ctx.unmodelled;
+    contract
+        .unmodelled
+        .sort_by(|a, b| a.pointer.cmp(&b.pointer).then_with(|| a.kind.cmp(&b.kind)));
+    contract.unmodelled.dedup();
     Ok(contract)
 }
 
-struct OpenApiContext<'a> {
-    source: &'a str,
-    root: &'a MarkedYamlOwned,
-}
-
-fn parse_request_payload(
-    context: &OpenApiContext<'_>,
-    operation: &MarkedYamlOwned,
-    pointer: &str,
-) -> Option<Payload> {
-    let request_body = get_map_value(operation, "requestBody")?;
-    let schema = payload_schema_node(request_body)?;
-    let ty = parse_schema(context, schema, &mut Vec::new());
-    Some(Payload {
-        ty,
-        span: span(
-            context.source,
-            request_body,
-            format!("{pointer}/requestBody/content"),
-        ),
+fn check_version(source: &str, root: &MarkedYamlOwned) -> Result<(), OpenApiError> {
+    let Some(version) = get_map_value(root, "openapi").and_then(scalar_repr) else {
+        return Err(OpenApiError::MissingVersion {
+            contract_source: source.to_owned(),
+        });
+    };
+    if version.starts_with("3.0") || version.starts_with("3.1") {
+        return Ok(());
+    }
+    Err(OpenApiError::UnsupportedVersion {
+        contract_source: source.to_owned(),
+        version,
     })
 }
 
-fn parse_parameters(
-    context: &OpenApiContext<'_>,
-    operation: &MarkedYamlOwned,
-    pointer: &str,
-) -> Vec<Parameter> {
-    let mut parameters = Vec::new();
-    let Some(parameter_nodes) =
-        get_map_value(operation, "parameters").and_then(|node| node.data.as_vec())
-    else {
-        return parameters;
-    };
+struct Ctx<'a> {
+    source: &'a str,
+    root: &'a MarkedYamlOwned,
+    ref_stack: Vec<String>,
+    unmodelled: Vec<Unmodelled>,
+    fatal: Option<OpenApiError>,
+}
 
-    for (index, parameter_node) in parameter_nodes.iter().enumerate() {
-        let Some(parameter_map) = parameter_node.data.as_mapping() else {
-            continue;
-        };
-        let Some(name) = parameter_map
-            .get(&yaml_string("name"))
-            .and_then(string_node)
-            .map(ToOwned::to_owned)
-        else {
-            continue;
-        };
-        let Some(location) = parameter_map
-            .get(&yaml_string("in"))
-            .and_then(string_node)
-            .map(ToOwned::to_owned)
-        else {
-            continue;
-        };
-        let required = parameter_map
-            .get(&yaml_string("required"))
-            .and_then(bool_node)
-            .unwrap_or(false);
-        let ty = parameter_map
-            .get(&yaml_string("schema"))
-            .map(|schema| parse_schema(context, schema, &mut Vec::new()))
-            .unwrap_or(TypeRef::Unknown(UnmodelledKind::SchemaDeferred));
-
-        let _parameter_span = span(
-            context.source,
-            parameter_node,
-            format!("{pointer}/parameters/{index}"),
-        );
-        parameters.push(Parameter {
-            name,
-            location,
-            required,
-            ty,
+impl<'a> Ctx<'a> {
+    fn record(&mut self, kind: UnmodelledKind, pointer: &str, node: &MarkedYamlOwned) -> TypeRef {
+        self.unmodelled.push(Unmodelled {
+            kind: kind.clone(),
+            pointer: pointer.to_owned(),
+            span: span(self.source, node, pointer.to_owned()),
         });
+        TypeRef::Unknown(kind)
     }
 
-    parameters
-}
-
-fn parse_responses(
-    context: &OpenApiContext<'_>,
-    operation: &MarkedYamlOwned,
-    pointer: &str,
-) -> BTreeMap<String, Payload> {
-    let mut responses = BTreeMap::new();
-    let Some(response_map) =
-        get_map_value(operation, "responses").and_then(|node| node.data.as_mapping())
-    else {
-        return responses;
-    };
-
-    for (status_key, status_node) in response_map {
-        let Some(status) = string_node(status_key) else {
-            continue;
+    /// Resolve a `$ref` on a non-schema node (path item, parameter, response).
+    fn follow_ref(&mut self, node: &'a MarkedYamlOwned) -> &'a MarkedYamlOwned {
+        let Some(reference) = get_map_value(node, "$ref").and_then(string_node) else {
+            return node;
         };
-        let ty = payload_schema_node(status_node)
-            .map(|schema| parse_schema(context, schema, &mut Vec::new()))
-            .unwrap_or(TypeRef::Unknown(UnmodelledKind::SchemaDeferred));
-        responses.insert(
-            status.to_owned(),
-            Payload {
-                ty,
-                span: span(
-                    context.source,
-                    status_node,
-                    format!("{pointer}/responses/{}", escape_json_pointer(status)),
-                ),
-            },
-        );
-    }
-
-    responses
-}
-
-fn parse_schema(
-    context: &OpenApiContext<'_>,
-    schema_node: &MarkedYamlOwned,
-    ref_stack: &mut Vec<String>,
-) -> TypeRef {
-    if let Some(reference) = get_map_value(schema_node, "$ref").and_then(string_node) {
-        return resolve_reference(context, reference, ref_stack);
-    }
-
-    if let Some(all_of) = get_map_value(schema_node, "allOf").and_then(|node| node.data.as_vec()) {
-        return flatten_all_of(context, all_of, ref_stack);
-    }
-
-    if let Some(one_of) = get_map_value(schema_node, "oneOf").and_then(|node| node.data.as_vec()) {
-        return TypeRef::OneOf {
-            variants: one_of
-                .iter()
-                .map(|variant| parse_schema(context, variant, ref_stack))
-                .collect(),
-        };
-    }
-    if let Some(any_of) = get_map_value(schema_node, "anyOf").and_then(|node| node.data.as_vec()) {
-        return TypeRef::OneOf {
-            variants: any_of
-                .iter()
-                .map(|variant| parse_schema(context, variant, ref_stack))
-                .collect(),
-        };
-    }
-
-    if let Some(enum_values) =
-        get_map_value(schema_node, "enum").and_then(|node| node.data.as_vec())
-    {
-        let values = enum_values
-            .iter()
-            .filter_map(enum_value_repr)
-            .collect::<BTreeSet<_>>();
-        if !values.is_empty() {
-            return TypeRef::Enum { values };
+        match self.classify_ref(reference) {
+            RefKind::Local => find_pointer(self.root, reference).unwrap_or(node),
+            RefKind::Fatal(error) => {
+                self.fatal.get_or_insert(error);
+                node
+            }
+            RefKind::External(_) => node,
         }
     }
 
-    let nullable_30 = get_map_value(schema_node, "nullable")
-        .and_then(bool_node)
-        .unwrap_or(false);
-    if let Some(ty_value) = get_map_value(schema_node, "type")
-        && let Some((ty, nullable_31)) = parse_type_value(ty_value)
-    {
-        let nullable = nullable_30 || nullable_31;
-        if ty == "array" {
-            let items = get_map_value(schema_node, "items")
-                .map(|items| parse_schema(context, items, ref_stack))
-                .unwrap_or(TypeRef::Unknown(UnmodelledKind::SchemaDeferred));
-            return TypeRef::Array {
-                items: Box::new(items),
-            };
+    fn classify_ref(&self, reference: &str) -> RefKind {
+        let lowered = reference.trim().to_ascii_lowercase();
+        if lowered.starts_with("http://")
+            || lowered.starts_with("https://")
+            || lowered.starts_with("//")
+        {
+            return RefKind::Fatal(OpenApiError::RemoteRef {
+                contract_source: self.source.to_owned(),
+                reference: reference.to_owned(),
+            });
         }
-        if ty == "object" {
-            return parse_object_type(context, schema_node, ref_stack);
+        if reference.starts_with("#/") || reference == "#" {
+            return RefKind::Local;
         }
-        return TypeRef::Scalar {
-            ty,
-            format: get_map_value(schema_node, "format")
-                .and_then(string_node)
-                .map(ToOwned::to_owned),
-            nullable,
+
+        // A file-relative ref. Ingest does not read it, but a ref that climbs
+        // out of the source's directory is refused outright rather than
+        // reported: guarantee G2 says that is an error, not a read.
+        let file_part = reference.split('#').next().unwrap_or(reference);
+        if escapes_source_tree(file_part) {
+            return RefKind::Fatal(OpenApiError::EscapingRef {
+                contract_source: self.source.to_owned(),
+                reference: reference.to_owned(),
+            });
+        }
+        RefKind::External(reference.to_owned())
+    }
+
+    fn parse_security_schemes(&mut self) -> BTreeMap<String, SecurityScheme> {
+        let mut schemes = BTreeMap::new();
+        let Some(components) = get_map_value(self.root, "components") else {
+            return schemes;
         };
-    }
+        let Some(entries) =
+            get_map_value(components, "securitySchemes").and_then(|node| node.data.as_mapping())
+        else {
+            return schemes;
+        };
 
-    if get_map_value(schema_node, "properties").is_some() {
-        return parse_object_type(context, schema_node, ref_stack);
-    }
-
-    TypeRef::Unknown(UnmodelledKind::SchemaDeferred)
-}
-
-fn parse_object_type(
-    context: &OpenApiContext<'_>,
-    schema_node: &MarkedYamlOwned,
-    ref_stack: &mut Vec<String>,
-) -> TypeRef {
-    let mut fields = BTreeMap::new();
-    let required = get_map_value(schema_node, "required")
-        .and_then(|node| node.data.as_vec())
-        .map(|items| {
-            items
-                .iter()
-                .filter_map(string_node)
-                .map(ToOwned::to_owned)
-                .collect::<BTreeSet<_>>()
-        })
-        .unwrap_or_default();
-
-    if let Some(properties) =
-        get_map_value(schema_node, "properties").and_then(|node| node.data.as_mapping())
-    {
-        for (name_node, property_schema) in properties {
+        for (name_node, scheme_node) in entries {
             let Some(name) = string_node(name_node) else {
                 continue;
             };
-            fields.insert(
+            let pointer = format!("/components/securitySchemes/{}", escape_json_pointer(name));
+            let Some(ty) = get_map_value(scheme_node, "type").and_then(string_node) else {
+                self.record(UnmodelledKind::InvalidShape, &pointer, scheme_node);
+                continue;
+            };
+            let flows = get_map_value(scheme_node, "flows")
+                .and_then(|node| node.data.as_mapping())
+                .map(|mapping| {
+                    mapping
+                        .keys()
+                        .filter_map(string_node)
+                        .map(ToOwned::to_owned)
+                        .collect::<BTreeSet<_>>()
+                })
+                .unwrap_or_default();
+            schemes.insert(
                 name.to_owned(),
-                Field {
-                    ty: parse_schema(context, property_schema, ref_stack),
-                    required: required.contains(name),
+                SecurityScheme {
+                    ty: ty.to_owned(),
+                    scheme: get_map_value(scheme_node, "scheme")
+                        .and_then(string_node)
+                        .map(ToOwned::to_owned),
+                    flows,
+                    location: get_map_value(scheme_node, "in")
+                        .and_then(string_node)
+                        .map(ToOwned::to_owned),
+                    span: span(self.source, scheme_node, pointer),
                 },
             );
         }
+        schemes
     }
 
-    let additional = get_map_value(schema_node, "additionalProperties")
-        .and_then(bool_node)
-        .unwrap_or(true);
-    TypeRef::Object { fields, additional }
-}
-
-fn resolve_reference(
-    context: &OpenApiContext<'_>,
-    reference: &str,
-    ref_stack: &mut Vec<String>,
-) -> TypeRef {
-    if !reference.starts_with("#/") {
-        return TypeRef::Unknown(UnmodelledKind::InvalidShape);
-    }
-    let name = reference
-        .split('/')
-        .next_back()
-        .unwrap_or(reference)
-        .replace("~1", "/")
-        .replace("~0", "~");
-
-    if ref_stack.contains(&reference.to_owned()) {
-        return TypeRef::Cycle(name);
+    fn parse_request_payload(
+        &mut self,
+        operation: &'a MarkedYamlOwned,
+        pointer: &str,
+    ) -> Option<Payload> {
+        let request_body = get_map_value(operation, "requestBody")?;
+        let request_body = self.follow_ref(request_body);
+        let pointer = format!("{pointer}/requestBody");
+        let media_types = self.parse_media_types(request_body, &pointer);
+        Some(Payload {
+            media_types,
+            span: span(self.source, request_body, pointer),
+        })
     }
 
-    let Some(target) = find_pointer(context.root, reference) else {
-        return TypeRef::Unknown(UnmodelledKind::InvalidShape);
-    };
-    ref_stack.push(reference.to_owned());
-    let parsed = parse_schema(context, target, ref_stack);
-    ref_stack.pop();
-    parsed
-}
+    fn parse_media_types(
+        &mut self,
+        container: &'a MarkedYamlOwned,
+        pointer: &str,
+    ) -> BTreeMap<String, TypeRef> {
+        let mut media_types = BTreeMap::new();
+        let Some(content) =
+            get_map_value(container, "content").and_then(|node| node.data.as_mapping())
+        else {
+            // A body with no content at all is a legitimate 204; a body whose
+            // content cannot be read is not. Both are reported as deferred so
+            // neither is mistaken for a verified-compatible payload.
+            return media_types;
+        };
 
-fn flatten_all_of(
-    context: &OpenApiContext<'_>,
-    parts: &[MarkedYamlOwned],
-    ref_stack: &mut Vec<String>,
-) -> TypeRef {
-    let mut fields = BTreeMap::new();
-    let mut additional = true;
-    let mut merged_any = false;
+        for (media_key, media_node) in content {
+            let Some(media_type) = string_node(media_key) else {
+                continue;
+            };
+            let media_pointer = format!("{pointer}/content/{}", escape_json_pointer(media_type));
+            let ty = match get_map_value(media_node, "schema") {
+                Some(schema) => self.parse_schema(schema, &media_pointer),
+                None => self.record(UnmodelledKind::SchemaDeferred, &media_pointer, media_node),
+            };
+            media_types.insert(media_type.to_owned(), ty);
+        }
+        media_types
+    }
 
-    for part in parts {
-        let parsed = parse_schema(context, part, ref_stack);
-        if let TypeRef::Object {
-            fields: part_fields,
-            additional: part_additional,
-        } = parsed
-        {
-            merged_any = true;
-            for (name, field) in part_fields {
-                fields.insert(name, field);
+    fn parse_parameters(
+        &mut self,
+        container: &'a MarkedYamlOwned,
+        pointer: &str,
+        inherited: &[Parameter],
+    ) -> Vec<Parameter> {
+        let mut parameters = inherited.to_vec();
+        let Some(parameter_nodes) =
+            get_map_value(container, "parameters").and_then(|node| node.data.as_vec())
+        else {
+            return parameters;
+        };
+
+        for (index, raw_node) in parameter_nodes.iter().enumerate() {
+            let parameter_pointer = format!("{pointer}/parameters/{index}");
+            let parameter_node = self.follow_ref(raw_node);
+            if parameter_node.data.as_mapping().is_none() {
+                self.record(UnmodelledKind::InvalidShape, &parameter_pointer, raw_node);
+                continue;
             }
-            additional &= part_additional;
+
+            let (Some(name), Some(location)) = (
+                get_map_value(parameter_node, "name").and_then(string_node),
+                get_map_value(parameter_node, "in").and_then(string_node),
+            ) else {
+                // A parameter we cannot identify used to be skipped silently,
+                // which is a hole in the endpoint's request surface.
+                self.record(
+                    UnmodelledKind::InvalidShape,
+                    &parameter_pointer,
+                    parameter_node,
+                );
+                continue;
+            };
+
+            let required = get_map_value(parameter_node, "required")
+                .and_then(bool_node)
+                // A path parameter is required by definition; some documents
+                // leave the flag off.
+                .unwrap_or(location == "path");
+            let ty = match get_map_value(parameter_node, "schema") {
+                Some(schema) => self.parse_schema(schema, &parameter_pointer),
+                None => self.record(
+                    UnmodelledKind::SchemaDeferred,
+                    &parameter_pointer,
+                    parameter_node,
+                ),
+            };
+
+            let parameter = Parameter {
+                name: name.to_owned(),
+                location: location.to_owned(),
+                required,
+                deprecated: get_map_value(parameter_node, "deprecated")
+                    .and_then(bool_node)
+                    .unwrap_or(false),
+                ty,
+                span: span(self.source, parameter_node, parameter_pointer),
+            };
+            // An operation-level parameter overrides an inherited path-level
+            // one with the same identity, per the OpenAPI specification.
+            if let Some(existing) = parameters
+                .iter_mut()
+                .find(|held| held.name == parameter.name && held.location == parameter.location)
+            {
+                *existing = parameter;
+            } else {
+                parameters.push(parameter);
+            }
+        }
+
+        parameters.sort_by(|a, b| {
+            a.location
+                .cmp(&b.location)
+                .then_with(|| a.name.cmp(&b.name))
+        });
+        parameters
+    }
+
+    fn parse_responses(
+        &mut self,
+        operation: &'a MarkedYamlOwned,
+        pointer: &str,
+    ) -> BTreeMap<String, Payload> {
+        let mut responses = BTreeMap::new();
+        let Some(response_map) =
+            get_map_value(operation, "responses").and_then(|node| node.data.as_mapping())
+        else {
+            return responses;
+        };
+
+        for (status_key, raw_node) in response_map {
+            let Some(status) = scalar_repr(status_key) else {
+                continue;
+            };
+            let status_pointer = format!("{pointer}/responses/{}", escape_json_pointer(&status));
+            let status_node = self.follow_ref(raw_node);
+            let media_types = self.parse_media_types(status_node, &status_pointer);
+            responses.insert(
+                status,
+                Payload {
+                    media_types,
+                    span: span(self.source, status_node, status_pointer),
+                },
+            );
+        }
+
+        responses
+    }
+
+    fn parse_schema(&mut self, schema_node: &'a MarkedYamlOwned, pointer: &str) -> TypeRef {
+        if schema_node.data.as_mapping().is_none() {
+            // 3.1 allows `true`/`false` as a schema. `true` accepts anything;
+            // treat it as an open object rather than guessing a shape.
+            if bool_node(schema_node) == Some(true) {
+                return TypeRef::Object {
+                    fields: BTreeMap::new(),
+                    additional: true,
+                    nullable: true,
+                };
+            }
+            return self.record(UnmodelledKind::InvalidShape, pointer, schema_node);
+        }
+
+        if let Some(reference) = get_map_value(schema_node, "$ref").and_then(string_node) {
+            return self.resolve_schema_reference(reference, pointer, schema_node);
+        }
+
+        // `not` cannot be modelled structurally and silently ignoring it would
+        // claim a verification that did not happen.
+        if get_map_value(schema_node, "not").is_some() {
+            return self.record(
+                UnmodelledKind::Unsupported("not".to_owned()),
+                pointer,
+                schema_node,
+            );
+        }
+
+        if let Some(all_of) =
+            get_map_value(schema_node, "allOf").and_then(|node| node.data.as_vec())
+        {
+            return self.flatten_all_of(all_of, pointer);
+        }
+
+        for keyword in ["oneOf", "anyOf"] {
+            if let Some(variants) =
+                get_map_value(schema_node, keyword).and_then(|node| node.data.as_vec())
+            {
+                let parsed = variants
+                    .iter()
+                    .enumerate()
+                    .map(|(index, variant)| {
+                        self.parse_schema(variant, &format!("{pointer}/{keyword}/{index}"))
+                    })
+                    .collect();
+                return TypeRef::OneOf { variants: parsed };
+            }
+        }
+
+        if let Some(enum_node) = get_map_value(schema_node, "enum") {
+            if let Some(enum_values) = enum_node.data.as_vec() {
+                let mut values = BTreeSet::new();
+                for (index, value) in enum_values.iter().enumerate() {
+                    match scalar_repr(value) {
+                        Some(repr) => {
+                            values.insert(repr);
+                        }
+                        // A dropped enum value silently widens the modelled
+                        // type, which would hide a narrowing on the next run.
+                        None => {
+                            return self.record(
+                                UnmodelledKind::Unsupported(format!("enum value {index}")),
+                                pointer,
+                                value,
+                            );
+                        }
+                    }
+                }
+                if !values.is_empty() {
+                    return TypeRef::Enum {
+                        values,
+                        numbers: BTreeMap::new(),
+                    };
+                }
+            } else {
+                return self.record(
+                    UnmodelledKind::Unsupported("enum".to_owned()),
+                    pointer,
+                    enum_node,
+                );
+            }
+        }
+
+        let nullable_30 = get_map_value(schema_node, "nullable")
+            .and_then(bool_node)
+            .unwrap_or(false);
+        if let Some(ty_value) = get_map_value(schema_node, "type") {
+            let Some(parsed) = parse_type_value(ty_value) else {
+                return self.record(
+                    UnmodelledKind::Unsupported("type".to_owned()),
+                    pointer,
+                    ty_value,
+                );
+            };
+            let nullable = nullable_30 || parsed.nullable;
+
+            // A union of concrete types is a real construct; modelling it as
+            // whichever member happened to be last is how a narrowing hides.
+            if parsed.names.len() > 1 {
+                return TypeRef::OneOf {
+                    variants: parsed
+                        .names
+                        .iter()
+                        .map(|name| self.type_for_name(name, schema_node, pointer, nullable))
+                        .collect(),
+                };
+            }
+            let Some(name) = parsed.names.first() else {
+                // `type: [null]` alone.
+                return TypeRef::Scalar {
+                    ty: "null".to_owned(),
+                    format: None,
+                    nullable: true,
+                    constraints: Constraints::default(),
+                };
+            };
+            return self.type_for_name(&name.clone(), schema_node, pointer, nullable);
+        }
+
+        if get_map_value(schema_node, "properties").is_some()
+            || get_map_value(schema_node, "additionalProperties").is_some()
+        {
+            return self.parse_object_type(schema_node, pointer, nullable_30);
+        }
+        if get_map_value(schema_node, "items").is_some() {
+            return self.parse_array_type(schema_node, pointer, nullable_30);
+        }
+        if schema_node
+            .data
+            .as_mapping()
+            .is_some_and(|mapping| mapping.is_empty())
+        {
+            // An empty schema accepts anything, which is a modelled fact.
+            return TypeRef::Object {
+                fields: BTreeMap::new(),
+                additional: true,
+                nullable: true,
+            };
+        }
+
+        self.record(UnmodelledKind::SchemaDeferred, pointer, schema_node)
+    }
+
+    fn type_for_name(
+        &mut self,
+        name: &str,
+        schema_node: &'a MarkedYamlOwned,
+        pointer: &str,
+        nullable: bool,
+    ) -> TypeRef {
+        match name {
+            "array" => self.parse_array_type(schema_node, pointer, nullable),
+            "object" => self.parse_object_type(schema_node, pointer, nullable),
+            _ => TypeRef::Scalar {
+                ty: name.to_owned(),
+                format: get_map_value(schema_node, "format")
+                    .and_then(string_node)
+                    .map(ToOwned::to_owned),
+                nullable,
+                constraints: parse_constraints(schema_node),
+            },
         }
     }
 
-    if merged_any {
-        TypeRef::Object { fields, additional }
-    } else {
-        TypeRef::Unknown(UnmodelledKind::SchemaDeferred)
+    fn parse_array_type(
+        &mut self,
+        schema_node: &'a MarkedYamlOwned,
+        pointer: &str,
+        nullable: bool,
+    ) -> TypeRef {
+        let items = match get_map_value(schema_node, "items") {
+            Some(items) => self.parse_schema(items, &format!("{pointer}/items")),
+            None => self.record(
+                UnmodelledKind::SchemaDeferred,
+                &format!("{pointer}/items"),
+                schema_node,
+            ),
+        };
+        TypeRef::Array {
+            items: Box::new(items),
+            nullable,
+        }
+    }
+
+    fn parse_object_type(
+        &mut self,
+        schema_node: &'a MarkedYamlOwned,
+        pointer: &str,
+        nullable: bool,
+    ) -> TypeRef {
+        let mut fields = BTreeMap::new();
+        let required = get_map_value(schema_node, "required")
+            .and_then(|node| node.data.as_vec())
+            .map(|items| {
+                items
+                    .iter()
+                    .filter_map(string_node)
+                    .map(ToOwned::to_owned)
+                    .collect::<BTreeSet<_>>()
+            })
+            .unwrap_or_default();
+
+        if let Some(properties) =
+            get_map_value(schema_node, "properties").and_then(|node| node.data.as_mapping())
+        {
+            for (name_node, property_schema) in properties {
+                let Some(name) = string_node(name_node) else {
+                    continue;
+                };
+                let field_pointer = format!("{pointer}/properties/{}", escape_json_pointer(name));
+                fields.insert(
+                    name.to_owned(),
+                    Field {
+                        ty: self.parse_schema(property_schema, &field_pointer),
+                        required: required.contains(name),
+                        deprecated: get_map_value(property_schema, "deprecated")
+                            .and_then(bool_node)
+                            .unwrap_or(false),
+                        number: None,
+                    },
+                );
+            }
+        }
+
+        // `additionalProperties` is a boolean *or* a schema. Reading only the
+        // boolean made `additionalProperties: {type: string}` look wide open.
+        let additional = match get_map_value(schema_node, "additionalProperties") {
+            None => true,
+            Some(node) => match bool_node(node) {
+                Some(value) => value,
+                None => {
+                    self.parse_schema(node, &format!("{pointer}/additionalProperties"));
+                    true
+                }
+            },
+        };
+
+        TypeRef::Object {
+            fields,
+            additional,
+            nullable,
+        }
+    }
+
+    fn resolve_schema_reference(
+        &mut self,
+        reference: &str,
+        pointer: &str,
+        node: &'a MarkedYamlOwned,
+    ) -> TypeRef {
+        match self.classify_ref(reference) {
+            RefKind::Fatal(error) => {
+                self.fatal.get_or_insert(error);
+                TypeRef::Unknown(UnmodelledKind::InvalidShape)
+            }
+            RefKind::External(reference) => {
+                self.record(UnmodelledKind::ExternalRef(reference), pointer, node)
+            }
+            RefKind::Local => {
+                let name = reference
+                    .rsplit('/')
+                    .next()
+                    .unwrap_or(reference)
+                    .replace("~1", "/")
+                    .replace("~0", "~");
+
+                if self.ref_stack.iter().any(|held| held == reference) {
+                    return TypeRef::Cycle(name);
+                }
+                let Some(target) = find_pointer(self.root, reference) else {
+                    return self.record(
+                        UnmodelledKind::UnresolvableRef(reference.to_owned()),
+                        pointer,
+                        node,
+                    );
+                };
+                self.ref_stack.push(reference.to_owned());
+                let parsed = self.parse_schema(target, pointer);
+                self.ref_stack.pop();
+                parsed
+            }
+        }
+    }
+
+    fn flatten_all_of(&mut self, parts: &'a [MarkedYamlOwned], pointer: &str) -> TypeRef {
+        let mut fields = BTreeMap::new();
+        let mut additional = true;
+        let mut nullable = false;
+        let mut merged_any = false;
+
+        for (index, part) in parts.iter().enumerate() {
+            let parsed = self.parse_schema(part, &format!("{pointer}/allOf/{index}"));
+            match parsed {
+                TypeRef::Object {
+                    fields: part_fields,
+                    additional: part_additional,
+                    nullable: part_nullable,
+                } => {
+                    merged_any = true;
+                    fields.extend(part_fields);
+                    additional &= part_additional;
+                    nullable |= part_nullable;
+                }
+                // A branch that is not an object cannot be merged; saying so
+                // is better than dropping it and reporting the rest as whole.
+                TypeRef::Unknown(kind) => {
+                    return TypeRef::Unknown(kind);
+                }
+                other => {
+                    if !merged_any && parts.len() == 1 {
+                        return other;
+                    }
+                    return self.record(
+                        UnmodelledKind::Unsupported("allOf of non-object".to_owned()),
+                        &format!("{pointer}/allOf/{index}"),
+                        &parts[index],
+                    );
+                }
+            }
+        }
+
+        if merged_any {
+            TypeRef::Object {
+                fields,
+                additional,
+                nullable,
+            }
+        } else {
+            TypeRef::Unknown(UnmodelledKind::SchemaDeferred)
+        }
     }
 }
 
-fn parse_type_value(type_node: &MarkedYamlOwned) -> Option<(String, bool)> {
+enum RefKind {
+    Local,
+    External(String),
+    Fatal(OpenApiError),
+}
+
+/// Does this relative path climb above the directory holding the source?
+///
+/// Decided lexically, because ingest never touches the filesystem — the point
+/// is to refuse the traversal, not to discover where it would have landed.
+fn escapes_source_tree(file_part: &str) -> bool {
+    if file_part.starts_with('/') {
+        return true;
+    }
+    let mut depth = 0i32;
+    for segment in file_part.split('/') {
+        match segment {
+            "" | "." => {}
+            ".." => {
+                depth -= 1;
+                if depth < 0 {
+                    return true;
+                }
+            }
+            _ => depth += 1,
+        }
+    }
+    false
+}
+
+struct ParsedType {
+    names: Vec<String>,
+    nullable: bool,
+}
+
+fn parse_type_value(type_node: &MarkedYamlOwned) -> Option<ParsedType> {
     if let Some(single) = string_node(type_node) {
-        return Some((single.to_owned(), false));
+        return Some(ParsedType {
+            names: vec![single.to_owned()],
+            nullable: false,
+        });
     }
 
     let values = type_node.data.as_vec()?;
     let mut nullable = false;
-    let mut non_null = None::<String>;
+    let mut names = Vec::new();
     for value in values {
         let ty = string_node(value)?;
         if ty == "null" {
             nullable = true;
         } else {
-            non_null = Some(ty.to_owned());
+            names.push(ty.to_owned());
         }
     }
-    non_null.map(|ty| (ty, nullable))
+    names.sort();
+    names.dedup();
+    Some(ParsedType { names, nullable })
 }
 
-fn payload_schema_node(payload_container: &MarkedYamlOwned) -> Option<&MarkedYamlOwned> {
-    let content = get_map_value(payload_container, "content")?;
-    let media = content.data.as_mapping()?.iter().next()?.1;
-    get_map_value(media, "schema")
+fn parse_constraints(schema_node: &MarkedYamlOwned) -> Constraints {
+    Constraints {
+        minimum: get_map_value(schema_node, "minimum").and_then(scalar_repr),
+        maximum: get_map_value(schema_node, "maximum").and_then(scalar_repr),
+        min_length: get_map_value(schema_node, "minLength")
+            .and_then(|node| node.data.as_integer())
+            .and_then(|value| u64::try_from(value).ok()),
+        max_length: get_map_value(schema_node, "maxLength")
+            .and_then(|node| node.data.as_integer())
+            .and_then(|value| u64::try_from(value).ok()),
+        pattern: get_map_value(schema_node, "pattern")
+            .and_then(string_node)
+            .map(ToOwned::to_owned),
+    }
+}
+
+fn parse_security(container: &MarkedYamlOwned) -> Option<Vec<SecurityRequirement>> {
+    let entries = get_map_value(container, "security")?.data.as_vec()?;
+    let mut requirements = Vec::new();
+    for entry in entries {
+        let Some(mapping) = entry.data.as_mapping() else {
+            continue;
+        };
+        for (name_node, scopes_node) in mapping {
+            let Some(name) = string_node(name_node) else {
+                continue;
+            };
+            let scopes = scopes_node
+                .data
+                .as_vec()
+                .map(|values| {
+                    values
+                        .iter()
+                        .filter_map(string_node)
+                        .map(ToOwned::to_owned)
+                        .collect::<BTreeSet<_>>()
+                })
+                .unwrap_or_default();
+            requirements.push(SecurityRequirement {
+                name: name.to_owned(),
+                scopes,
+            });
+        }
+    }
+    requirements.sort();
+    requirements.dedup();
+    Some(requirements)
 }
 
 fn find_pointer<'a>(root: &'a MarkedYamlOwned, pointer: &str) -> Option<&'a MarkedYamlOwned> {
+    let trimmed = pointer.trim_start_matches('#');
+    if trimmed.is_empty() || trimmed == "/" {
+        return Some(root);
+    }
     let mut current = root;
-    for token in pointer.trim_start_matches("#/").split('/') {
+    for token in trimmed.trim_start_matches('/').split('/') {
         let decoded = token.replace("~1", "/").replace("~0", "~");
         current = get_map_value(current, &decoded)?;
     }
@@ -435,17 +921,19 @@ fn get_map_value<'a>(node: &'a MarkedYamlOwned, key: &str) -> Option<&'a MarkedY
     node.data.as_mapping()?.get(&yaml_string(key))
 }
 
-fn enum_value_repr(node: &MarkedYamlOwned) -> Option<String> {
-    if let Some(value) = node.data.as_str() {
-        return Some(value.to_owned());
+/// A scalar's canonical text, for enum members, status codes and bounds.
+///
+/// Every YAML scalar has one, so nothing is dropped for being a float or a
+/// null the way `as_str`/`as_integer`/`as_bool` alone would drop it.
+fn scalar_repr(node: &MarkedYamlOwned) -> Option<String> {
+    match &node.data {
+        YamlDataOwned::Value(ScalarOwned::String(value)) => Some(value.clone()),
+        YamlDataOwned::Value(ScalarOwned::Integer(value)) => Some(value.to_string()),
+        YamlDataOwned::Value(ScalarOwned::FloatingPoint(value)) => Some(value.to_string()),
+        YamlDataOwned::Value(ScalarOwned::Boolean(value)) => Some(value.to_string()),
+        YamlDataOwned::Value(ScalarOwned::Null) => Some("null".to_owned()),
+        _ => None,
     }
-    if let Some(value) = node.data.as_integer() {
-        return Some(value.to_string());
-    }
-    if let Some(value) = node.data.as_bool() {
-        return Some(value.to_string());
-    }
-    None
 }
 
 fn yaml_string(value: &str) -> MarkedYamlOwned {
@@ -464,7 +952,7 @@ fn span(source: &str, node: &MarkedYamlOwned, pointer: String) -> Span {
     Span {
         file: source.to_owned(),
         line: node.span.start.line(),
-        column: node.span.start.col(),
+        column: node.span.start.col() + 1,
         pointer,
     }
 }
@@ -477,6 +965,28 @@ fn escape_json_pointer(value: &str) -> String {
 mod tests {
     use super::*;
 
+    fn response_type<'a>(
+        contract: &'a Contract,
+        method: &str,
+        path: &str,
+        status: &str,
+    ) -> &'a TypeRef {
+        contract
+            .endpoints
+            .get(&EndpointKey {
+                method: method.to_owned(),
+                path: path.to_owned(),
+            })
+            .expect("endpoint exists")
+            .responses
+            .get(status)
+            .expect("status exists")
+            .media_types
+            .values()
+            .next()
+            .expect("a media type")
+    }
+
     #[test]
     fn ingests_endpoint_set_and_spans() {
         let source = "api/payments-openapi.yaml";
@@ -487,6 +997,7 @@ paths:
     get:
       operationId: getPayment
       deprecated: true
+      x-sunset: "2026-12-01"
       responses:
         "200":
           description: ok
@@ -504,17 +1015,19 @@ paths:
             .expect("GET /payments/{id} should exist");
         assert_eq!(endpoint.operation_id.as_deref(), Some("getPayment"));
         assert!(endpoint.deprecated);
+        assert_eq!(endpoint.sunset.as_deref(), Some("2026-12-01"));
         assert_eq!(endpoint.span.file, source);
         assert_eq!(endpoint.span.line, 6);
         assert_eq!(endpoint.span.pointer, "/paths/~1payments~1{id}/get");
-        assert!(matches!(
+        // A response with no content declares no schema, and says so.
+        assert!(
             endpoint
                 .responses
                 .get("200")
                 .expect("response status exists")
-                .ty,
-            TypeRef::Unknown(UnmodelledKind::SchemaDeferred)
-        ));
+                .media_types
+                .is_empty()
+        );
     }
 
     #[test]
@@ -564,8 +1077,15 @@ paths:
             TypeRef::Scalar { ref ty, .. } if ty == "boolean"
         ));
 
-        let TypeRef::Object { fields, additional } =
-            &endpoint.request.as_ref().expect("request body exists").ty
+        let TypeRef::Object {
+            fields, additional, ..
+        } = endpoint
+            .request
+            .as_ref()
+            .expect("request body exists")
+            .media_types
+            .get("application/json")
+            .expect("json media type")
         else {
             panic!("request should be parsed as object");
         };
@@ -623,33 +1143,21 @@ paths:
 "#;
 
         let contract = ingest("api/openapi.yaml", spec.as_bytes()).expect("ingest");
-        let payments = contract
-            .endpoints
-            .get(&EndpointKey {
-                method: "GET".to_owned(),
-                path: "/payments".to_owned(),
-            })
-            .expect("payments endpoint");
-        let TypeRef::Object { fields, .. } = &payments.responses.get("200").expect("200").ty else {
+        let TypeRef::Object { fields, .. } = response_type(&contract, "GET", "/payments", "200")
+        else {
             panic!("allOf ref should flatten to object");
         };
         assert!(fields.get("id").expect("id").required);
         assert!(fields.contains_key("amount"));
 
-        let tree = contract
-            .endpoints
-            .get(&EndpointKey {
-                method: "GET".to_owned(),
-                path: "/tree".to_owned(),
-            })
-            .expect("tree endpoint");
-        let TypeRef::Object { fields, .. } = &tree.responses.get("200").expect("200").ty else {
+        let TypeRef::Object { fields, .. } = response_type(&contract, "GET", "/tree", "200") else {
             panic!("node schema should parse as object");
         };
         assert!(matches!(
             fields.get("child").expect("child field").ty,
             TypeRef::Cycle(ref name) if name == "Node"
         ));
+        assert!(contract.unmodelled.is_empty());
     }
 
     #[test]
@@ -669,20 +1177,412 @@ paths:
 "#;
 
         let contract = ingest("api/openapi.yaml", spec.as_bytes()).expect("ingest");
-        let endpoint = contract
+        assert!(matches!(
+            response_type(&contract, "GET", "/payments", "200"),
+            TypeRef::Scalar {
+                ty,
+                nullable: true,
+                ..
+            } if ty == "string"
+        ));
+    }
+
+    #[test]
+    fn keeps_every_media_type_not_just_the_first() {
+        let spec = r#"
+openapi: 3.1.0
+paths:
+  /payments:
+    get:
+      responses:
+        "200":
+          description: ok
+          content:
+            application/xml:
+              schema:
+                type: string
+            application/json:
+              schema:
+                type: object
+"#;
+        let contract = ingest("api/openapi.yaml", spec.as_bytes()).expect("ingest");
+        let payload = &contract
             .endpoints
             .get(&EndpointKey {
                 method: "GET".to_owned(),
                 path: "/payments".to_owned(),
             })
-            .expect("endpoint");
+            .expect("endpoint")
+            .responses["200"];
+        assert_eq!(
+            payload.media_types.keys().collect::<Vec<_>>(),
+            vec!["application/json", "application/xml"]
+        );
+    }
+
+    #[test]
+    fn remote_ref_is_refused_never_fetched() {
+        let spec = r#"
+openapi: 3.1.0
+paths:
+  /payments:
+    get:
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: 'https://example.com/schema.yaml#/Payment'
+"#;
+        let error = ingest("api/openapi.yaml", spec.as_bytes())
+            .expect_err("a remote ref must be an error, not a fetch");
+        assert!(matches!(error, OpenApiError::RemoteRef { .. }));
+    }
+
+    #[test]
+    fn ref_escaping_the_source_tree_is_an_error() {
+        let spec = r#"
+openapi: 3.1.0
+paths:
+  /payments:
+    get:
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: '../../../../etc/passwd#/x'
+"#;
+        let error = ingest("api/openapi.yaml", spec.as_bytes())
+            .expect_err("an escaping ref must be an error, not a read");
+        assert!(matches!(error, OpenApiError::EscapingRef { .. }));
+    }
+
+    #[test]
+    fn sibling_file_ref_is_reported_as_unmodelled_not_ignored() {
+        let spec = r#"
+openapi: 3.1.0
+paths:
+  /payments:
+    get:
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: 'common.yaml#/components/schemas/Payment'
+"#;
+        let contract = ingest("api/openapi.yaml", spec.as_bytes()).expect("ingest");
         assert!(matches!(
-            endpoint.responses.get("200").expect("response").ty,
-            TypeRef::Scalar {
-                ref ty,
-                nullable: true,
-                ..
-            } if ty == "string"
+            response_type(&contract, "GET", "/payments", "200"),
+            TypeRef::Unknown(UnmodelledKind::ExternalRef(_))
+        ));
+        assert_eq!(contract.unmodelled.len(), 1);
+    }
+
+    #[test]
+    fn unresolvable_local_ref_is_named() {
+        let spec = r#"
+openapi: 3.1.0
+paths:
+  /payments:
+    get:
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Missing'
+"#;
+        let contract = ingest("api/openapi.yaml", spec.as_bytes()).expect("ingest");
+        assert!(matches!(
+            response_type(&contract, "GET", "/payments", "200"),
+            TypeRef::Unknown(UnmodelledKind::UnresolvableRef(reference))
+                if reference == "#/components/schemas/Missing"
+        ));
+    }
+
+    #[test]
+    fn swagger_two_is_refused_rather_than_misread() {
+        let spec = r#"
+swagger: "2.0"
+paths:
+  /payments:
+    get:
+      responses:
+        "200":
+          description: ok
+"#;
+        let error = ingest("api/swagger.yaml", spec.as_bytes())
+            .expect_err("swagger 2.0 must not be read as OpenAPI 3");
+        assert!(matches!(error, OpenApiError::MissingVersion { .. }));
+    }
+
+    #[test]
+    fn path_level_parameters_apply_to_every_operation() {
+        let spec = r#"
+openapi: 3.1.0
+paths:
+  /payments/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      responses:
+        "200":
+          description: ok
+    delete:
+      parameters:
+        - name: force
+          in: query
+          schema:
+            type: boolean
+      responses:
+        "204":
+          description: gone
+"#;
+        let contract = ingest("api/openapi.yaml", spec.as_bytes()).expect("ingest");
+        let get = &contract.endpoints[&EndpointKey {
+            method: "GET".to_owned(),
+            path: "/payments/{id}".to_owned(),
+        }];
+        assert_eq!(get.parameters.len(), 1);
+        assert_eq!(get.parameters[0].name, "id");
+
+        let delete = &contract.endpoints[&EndpointKey {
+            method: "DELETE".to_owned(),
+            path: "/payments/{id}".to_owned(),
+        }];
+        assert_eq!(delete.parameters.len(), 2);
+    }
+
+    #[test]
+    fn resolves_referenced_parameters_and_responses() {
+        let spec = r#"
+openapi: 3.1.0
+components:
+  parameters:
+    PaymentId:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+  responses:
+    NotFound:
+      description: missing
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              code:
+                type: string
+paths:
+  /payments/{id}:
+    get:
+      parameters:
+        - $ref: '#/components/parameters/PaymentId'
+      responses:
+        "404":
+          $ref: '#/components/responses/NotFound'
+"#;
+        let contract = ingest("api/openapi.yaml", spec.as_bytes()).expect("ingest");
+        let endpoint = &contract.endpoints[&EndpointKey {
+            method: "GET".to_owned(),
+            path: "/payments/{id}".to_owned(),
+        }];
+        assert_eq!(endpoint.parameters.len(), 1);
+        assert_eq!(endpoint.parameters[0].name, "id");
+        assert!(endpoint.parameters[0].required);
+        assert!(matches!(
+            response_type(&contract, "GET", "/payments/{id}", "404"),
+            TypeRef::Object { .. }
+        ));
+        assert!(contract.unmodelled.is_empty());
+    }
+
+    #[test]
+    fn parses_security_requirements_and_schemes() {
+        let spec = r#"
+openapi: 3.1.0
+security:
+  - apiKey: []
+components:
+  securitySchemes:
+    apiKey:
+      type: apiKey
+      in: header
+    oauth:
+      type: oauth2
+      flows:
+        authorizationCode: {}
+paths:
+  /payments:
+    get:
+      responses:
+        "200":
+          description: ok
+    post:
+      security:
+        - oauth: [write]
+      responses:
+        "201":
+          description: ok
+"#;
+        let contract = ingest("api/openapi.yaml", spec.as_bytes()).expect("ingest");
+        let get = &contract.endpoints[&EndpointKey {
+            method: "GET".to_owned(),
+            path: "/payments".to_owned(),
+        }];
+        assert_eq!(get.security.len(), 1);
+        assert_eq!(get.security[0].name, "apiKey");
+
+        let post = &contract.endpoints[&EndpointKey {
+            method: "POST".to_owned(),
+            path: "/payments".to_owned(),
+        }];
+        assert_eq!(post.security[0].name, "oauth");
+        assert!(post.security[0].scopes.contains("write"));
+
+        assert_eq!(contract.security_schemes["apiKey"].ty, "apiKey");
+        assert!(
+            contract.security_schemes["oauth"]
+                .flows
+                .contains("authorizationCode")
+        );
+    }
+
+    #[test]
+    fn captures_scalar_constraints() {
+        let spec = r#"
+openapi: 3.1.0
+paths:
+  /payments:
+    post:
+      parameters:
+        - name: note
+          in: query
+          schema:
+            type: string
+            maxLength: 100
+            pattern: '^[a-z]+$'
+      responses:
+        "200":
+          description: ok
+"#;
+        let contract = ingest("api/openapi.yaml", spec.as_bytes()).expect("ingest");
+        let endpoint = &contract.endpoints[&EndpointKey {
+            method: "POST".to_owned(),
+            path: "/payments".to_owned(),
+        }];
+        let TypeRef::Scalar { constraints, .. } = &endpoint.parameters[0].ty else {
+            panic!("expected a scalar");
+        };
+        assert_eq!(constraints.max_length, Some(100));
+        assert_eq!(constraints.pattern.as_deref(), Some("^[a-z]+$"));
+    }
+
+    #[test]
+    fn unmodelled_constructs_are_recorded_not_dropped() {
+        let spec = r#"
+openapi: 3.1.0
+paths:
+  /payments:
+    get:
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                not:
+                  type: string
+"#;
+        let contract = ingest("api/openapi.yaml", spec.as_bytes()).expect("ingest");
+        assert_eq!(contract.unmodelled.len(), 1);
+        assert!(matches!(
+            contract.unmodelled[0].kind,
+            UnmodelledKind::Unsupported(ref what) if what == "not"
+        ));
+    }
+
+    #[test]
+    fn media_type_key_order_does_not_change_the_model() {
+        let one = r#"
+openapi: 3.1.0
+paths:
+  /p:
+    get:
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json: { schema: { type: object } }
+            application/xml: { schema: { type: string } }
+"#;
+        let two = r#"
+openapi: 3.1.0
+paths:
+  /p:
+    get:
+      responses:
+        "200":
+          description: ok
+          content:
+            application/xml: { schema: { type: string } }
+            application/json: { schema: { type: object } }
+"#;
+        let first = ingest("api/openapi.yaml", one.as_bytes()).expect("ingest");
+        let second = ingest("api/openapi.yaml", two.as_bytes()).expect("ingest");
+        let media = |c: &Contract| {
+            c.endpoints[&EndpointKey {
+                method: "GET".to_owned(),
+                path: "/p".to_owned(),
+            }]
+                .responses["200"]
+                .media_types
+                .clone()
+        };
+        assert_eq!(media(&first), media(&second));
+    }
+
+    #[test]
+    fn json_documents_ingest_as_readily_as_yaml() {
+        let spec = r#"{"openapi":"3.1.0","paths":{"/p":{"get":{"operationId":"getP",
+          "responses":{"200":{"description":"ok"}}}}}}"#;
+        let contract = ingest("api/openapi.json", spec.as_bytes()).expect("ingest");
+        assert_eq!(contract.endpoints.len(), 1);
+    }
+
+    #[test]
+    fn additional_properties_schema_is_not_read_as_wide_open() {
+        let spec = r#"
+openapi: 3.1.0
+paths:
+  /p:
+    get:
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties:
+                  type: string
+"#;
+        let contract = ingest("api/openapi.yaml", spec.as_bytes()).expect("ingest");
+        assert!(matches!(
+            response_type(&contract, "GET", "/p", "200"),
+            TypeRef::Object { .. }
         ));
     }
 }

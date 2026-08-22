@@ -312,6 +312,25 @@ impl RawSuppression {
             )));
         }
 
+        // An unreadable date silently never expires, which turns a
+        // time-boxed exception into a permanent one.
+        if let Some(expires) = &self.expires
+            && crate::rules::parse_date(expires).is_none()
+        {
+            return Err(ConfigError::Validation(format!(
+                "contract `{contract_name}` suppression for rule `{}` has an unreadable \
+                 `expires` value `{expires}`; use YYYY-MM-DD",
+                self.rule
+            )));
+        }
+        if crate::rules::catalogue::lookup(&self.rule).is_none() {
+            return Err(ConfigError::Validation(format!(
+                "contract `{contract_name}` suppresses unknown rule `{}`; \
+                 run `brake explain <rule-id>` to see the catalogue",
+                self.rule
+            )));
+        }
+
         Ok(Suppression {
             rule: self.rule,
             endpoint: self.endpoint,

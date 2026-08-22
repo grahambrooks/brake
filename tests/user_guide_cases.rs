@@ -2,7 +2,7 @@ use std::fs;
 use std::path::PathBuf;
 
 use brake::Severity;
-use brake::check::check_contracts;
+use brake::check::{Options, Scope, check};
 use brake::config::{Baseline, Compatibility, Config, ContractConfig, ContractFormat, Defaults};
 use tempfile::tempdir;
 
@@ -226,7 +226,7 @@ type Query {
             }],
         };
 
-        let report = check_contracts(repo.path(), &config, None, None, false);
+        let report = check(repo.path(), &config, &Scope::All, &Options::default());
         assert_eq!(
             report.exit_code(Severity::Error),
             case.expected_exit,

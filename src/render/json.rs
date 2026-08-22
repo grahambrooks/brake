@@ -1,24 +1,32 @@
+//! Machine-readable output, one object per finding.
+//!
+//! Key order is stable because `serde_json::json!` preserves declaration order
+//! and every collection reaching here is already sorted. Byte-stability across
+//! runs is guarantee G4.
+
 use serde_json::json;
 
 use crate::report::Report;
+use crate::rules::catalogue;
 
 pub fn render(report: &Report) -> String {
     let findings = report
         .findings
         .iter()
         .map(|finding| {
+            let span = finding.span.as_ref();
             json!({
-                "rule_id": finding.rule_id,
+                "rule": finding.rule_id,
                 "severity": severity_label(finding.severity),
-                "message": finding.message,
+                "contract": finding.contract,
                 "method": finding.method,
                 "path": finding.path,
-                "span": finding.span.as_ref().map(|span| json!({
-                    "file": span.file,
-                    "line": span.line,
-                    "column": span.column,
-                    "pointer": span.pointer,
-                })),
+                "pointer": finding.pointer,
+                "file": span.map(|span| span.file.clone()),
+                "line": span.map(|span| span.line),
+                "column": span.map(|span| span.column),
+                "message": finding.message,
+                "help_uri": catalogue::lookup(finding.rule_id).map(catalogue::Rule::help_uri),
             })
         })
         .collect::<Vec<_>>();
@@ -60,36 +68,54 @@ mod tests {
 
     use super::render;
 
-    #[test]
-    fn renders_structured_payload() {
-        let report = Report::new(
+    fn report() -> Report {
+        Report::new(
             vec![Finding {
-                rule_id: "endpoint-removed",
+                rule_id: "response-field-removed",
                 severity: Severity::Error,
-                message: "endpoint removed".to_owned(),
+                contract: "payments".to_owned(),
+                message: "response field removed: field `customer_id`".to_owned(),
                 method: Some("GET".to_owned()),
-                path: Some("/pets/{id}".to_owned()),
-                span: Some(Span {
-                    file: "api/openapi.yaml".to_owned(),
-                    line: 7,
-                    column: 3,
-                    pointer: "/paths/~1pets~1{id}/get".to_owned(),
-                }),
+                path: Some("/payments/{id}".to_owned()),
+                pointer: "/paths/~1payments~1{id}/get/responses/200/customer_id".to_owned(),
+                span: Some(Span::new("api/openapi.yaml", 142, 9, "/paths")),
             }],
             vec![Unavailable {
-                contract: Some("pets".to_owned()),
+                contract: Some("ledger".to_owned()),
                 message: "baseline missing".to_owned(),
             }],
-            1,
-        );
+            2,
+        )
+    }
 
-        let rendered = render(&report);
-        let value: serde_json::Value = serde_json::from_str(&rendered).expect("valid JSON");
+    #[test]
+    fn emits_the_documented_key_set() {
+        let value: serde_json::Value =
+            serde_json::from_str(&render(&report())).expect("valid JSON");
+        let finding = &value["findings"][0];
 
-        assert_eq!(value["contracts_checked"], 1);
-        assert_eq!(value["findings"][0]["rule_id"], "endpoint-removed");
-        assert_eq!(value["findings"][0]["severity"], "error");
-        assert_eq!(value["findings"][0]["span"]["file"], "api/openapi.yaml");
-        assert_eq!(value["unavailable"][0]["contract"], "pets");
+        for key in [
+            "rule", "severity", "contract", "method", "path", "pointer", "file", "line", "message",
+        ] {
+            assert!(!finding[key].is_null(), "missing documented key `{key}`");
+        }
+        assert_eq!(finding["rule"], "response-field-removed");
+        assert_eq!(finding["contract"], "payments");
+        assert_eq!(finding["file"], "api/openapi.yaml");
+        assert_eq!(finding["line"], 142);
+    }
+
+    #[test]
+    fn names_the_contract_so_findings_are_attributable() {
+        let value: serde_json::Value =
+            serde_json::from_str(&render(&report())).expect("valid JSON");
+        assert_eq!(value["findings"][0]["contract"], "payments");
+        assert_eq!(value["unavailable"][0]["contract"], "ledger");
+        assert_eq!(value["contracts_checked"], 2);
+    }
+
+    #[test]
+    fn output_is_byte_stable() {
+        assert_eq!(render(&report()), render(&report()));
     }
 }

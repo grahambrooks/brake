@@ -42,7 +42,7 @@ default = ["cli"]
 # and colour handling. A consumer embedding the library (forge) takes
 # `default-features = false` and gets the ingest/compare/rules core with no
 # argument parsing and no terminal handling.
-cli = ["dep:clap"]
+cli = ["dep:clap", "dep:annotate-snippets"]
 
 # Dependencies are added when the code that uses them is written, not ahead of
 # it — an unused dependency is a supply-chain liability and a lockfile churn
@@ -62,8 +62,10 @@ serde_json = "1"
 tempfile = "3"
 thiserror = "2"
 toml = "0.9"
+annotate-snippets = { version = "0.12.16", optional = true }
 
 [dev-dependencies]
+insta = { version = "1.48.0", default-features = false }
 
 [lints.rust]
 unsafe_code = "forbid"

@@ -4,11 +4,31 @@
 //! that would break a consumer. Hermetic by construction: no network, no
 //! toolchain, no running service.
 //!
-//! Nothing is implemented yet. See `design/` for the specification and
-//! `design/03-implementation-plan.md` for the build order. The public API this
-//! crate will expose is fixed in that document's §3 and is deliberately small,
-//! because every item in it is a compatibility obligation on a tool whose
-//! entire subject is compatibility obligations.
+//! The public surface below is the one `design/03-implementation-plan.md` §3
+//! fixes, and it is deliberately small — every item in it is a compatibility
+//! obligation on a tool whose entire subject is compatibility obligations.
+//!
+//! ```
+//! use brake::{Format, Level};
+//!
+//! let base = brake::parse(Format::Openapi, "api/openapi.yaml", b"
+//! openapi: 3.1.0
+//! paths:
+//!   /payments:
+//!     get:
+//!       operationId: listPayments
+//!       responses:
+//!         \"200\": { description: ok }
+//! ").expect("base parses");
+//! let head = brake::parse(Format::Openapi, "api/openapi.yaml", b"
+//! openapi: 3.1.0
+//! paths: {}
+//! ").expect("head parses");
+//!
+//! let changes = brake::compare(&base, &head);
+//! let findings = brake::evaluate(&changes, "payments", Level::WireJson);
+//! assert!(findings.iter().any(|f| f.rule_id == "endpoint-removed"));
+//! ```
 
 pub mod baseline;
 pub mod check;
@@ -19,8 +39,59 @@ pub mod render;
 pub mod report;
 pub mod rules;
 
+pub use crate::check::{Options, Scope};
+pub use crate::compare::Change;
+pub use crate::config::{Compatibility as Level, Config};
+pub use crate::contract::Contract;
+pub use crate::report::Report;
+pub use crate::rules::Finding;
+
 /// The version reported by `brake --version`, from `Cargo.toml`.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
+
+/// A contract format brake can ingest.
+pub type Format = crate::config::ContractFormat;
+
+/// Ingest one contract artifact from bytes.
+///
+/// No filesystem, no network. Taking bytes rather than a path is what lets a
+/// consumer feed a file it has already read, and what makes every ingest test
+/// a string literal rather than a temporary directory.
+///
+/// `source` is the label that appears in spans, and should be a
+/// repository-relative path.
+///
+/// # Errors
+///
+/// Returns the ingester's message when the document cannot be parsed, declares
+/// an unsupported version, or contains a `$ref` that would require the network
+/// or a read outside the source's directory.
+pub fn parse(format: Format, source: &str, bytes: &[u8]) -> Result<Contract, String> {
+    match format {
+        Format::Openapi => contract::openapi::ingest(source, bytes).map_err(|e| e.to_string()),
+        Format::Proto => contract::proto::ingest(source, bytes).map_err(|e| e.to_string()),
+        Format::Graphql => contract::graphql::ingest(source, bytes).map_err(|e| e.to_string()),
+    }
+}
+
+/// Compare two contracts, reporting everything that differs.
+///
+/// Level gating happens in [`evaluate`], not here: this reports what changed
+/// and the level decides what is worth saying about it.
+#[must_use]
+pub fn compare(base: &Contract, head: &Contract) -> Vec<Change> {
+    let mut changes = compare::compare_contracts(base, head);
+    changes.extend(compare::partial_changes(head));
+    changes.sort();
+    changes.dedup();
+    changes
+}
+
+/// Turn changes into findings at a compatibility level.
+#[must_use]
+pub fn evaluate(changes: &[Change], contract: &str, level: Level) -> Vec<Finding> {
+    rules::evaluate(changes, contract, level)
+}
 
 /// Severity of a finding.
 ///
@@ -52,6 +123,7 @@ pub enum Verdict {
 
 impl Verdict {
     /// Map to the documented exit codes: `0`, `1`, `2`.
+    #[must_use]
     pub fn exit_code(self) -> i32 {
         match self {
             Verdict::Clean => 0,
@@ -85,5 +157,36 @@ mod tests {
             "unexpected version: {VERSION}"
         );
         assert_ne!(VERSION, "0.0.0");
+    }
+
+    #[test]
+    fn the_public_api_round_trips_bytes_to_findings() {
+        let base = parse(
+            Format::Openapi,
+            "api/openapi.yaml",
+            b"openapi: 3.1.0\npaths:\n  /p:\n    get:\n      operationId: getP\n      responses:\n        \"200\": { description: ok }\n",
+        )
+        .expect("base");
+        let head = parse(
+            Format::Openapi,
+            "api/openapi.yaml",
+            b"openapi: 3.1.0\npaths: {}\n",
+        )
+        .expect("head");
+
+        let findings = evaluate(&compare(&base, &head), "payments", Level::WireJson);
+        assert!(findings.iter().any(|f| f.rule_id == "endpoint-removed"));
+        assert!(findings.iter().all(|f| f.contract == "payments"));
+    }
+
+    #[test]
+    fn parse_reports_a_refused_ref_rather_than_returning_a_partial_contract() {
+        let error = parse(
+            Format::Openapi,
+            "api/openapi.yaml",
+            b"openapi: 3.1.0\npaths:\n  /p:\n    get:\n      responses:\n        \"200\":\n          content:\n            application/json:\n              schema:\n                $ref: 'http://example.com/x.yaml'\n",
+        )
+        .expect_err("a remote ref must not parse");
+        assert!(error.contains("network"), "{error}");
     }
 }
