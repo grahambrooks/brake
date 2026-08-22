@@ -1,0 +1,27 @@
+tests/user_guide_cases.rs
+  s_0cb991f403e29b::t_7b316d39dd8971 239-242
+  s_0cb991f403e29b::t_968031f62c7e8b 1-238,243-255
+Makefile
+  s_0cb991f403e29b::t_541b9659954bf4 25,43-45
+  s_0cb991f403e29b::t_4c1f263a8095be 46
+README.md
+  s_0cb991f403e29b::t_3ff80748a1577f 62-68
+docs/user-guide-test-cases.md
+  s_0cb991f403e29b::t_f3c5dbf47e3dee 1-127
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.23",
+  "base_commit_sha": "489f51ba17927d0ccd9c8677b78aea6dcfc50f41",
+  "prompts": {},
+  "sessions": {
+    "s_0cb991f403e29b": {
+      "agent_id": {
+        "tool": "github-copilot-cli",
+        "id": "eaeadcb9-4369-46ec-8304-c581569c7aac",
+        "model": "auto"
+      },
+      "human_author": "Graham Brooks <graham@grahambrooks.com>"
+    }
+  }
+}
