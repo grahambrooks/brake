@@ -12,6 +12,7 @@
 //! stops gating.
 
 use std::path::PathBuf;
+use std::{io::IsTerminal, process::ExitCode};
 
 use brake::{Severity, Verdict};
 use clap::{Parser, Subcommand};
@@ -116,6 +117,7 @@ fn main() -> std::process::ExitCode {
         config,
         severity,
         as_of,
+        format,
         drift,
         ..
     } = &cli.command
@@ -124,14 +126,14 @@ fn main() -> std::process::ExitCode {
             Ok(value) => value,
             Err(error) => {
                 eprintln!("{error}");
-                return std::process::ExitCode::from(Verdict::ToolFailure.exit_code() as u8);
+                return ExitCode::from(Verdict::ToolFailure.exit_code() as u8);
             }
         };
         let threshold = match parse_severity(severity) {
             Ok(value) => value,
             Err(message) => {
                 eprintln!("{message}");
-                return std::process::ExitCode::from(Verdict::ToolFailure.exit_code() as u8);
+                return ExitCode::from(Verdict::ToolFailure.exit_code() as u8);
             }
         };
         let report = brake::check::check_contracts(
@@ -141,14 +143,22 @@ fn main() -> std::process::ExitCode {
             as_of.as_deref(),
             *drift,
         );
-        print!("{}", brake::render::text::render(&report));
-        return std::process::ExitCode::from(report.exit_code(threshold) as u8);
+        let output = match render_report(&report, format) {
+            Ok(value) => value,
+            Err(error) => {
+                eprintln!("{error}");
+                return ExitCode::from(Verdict::ToolFailure.exit_code() as u8);
+            }
+        };
+        print!("{output}");
+        return ExitCode::from(report.exit_code(threshold) as u8);
     }
 
     if let Command::Analyze {
         path,
         config,
         fail_on,
+        format,
         ..
     } = &cli.command
     {
@@ -156,19 +166,47 @@ fn main() -> std::process::ExitCode {
             Ok(value) => value,
             Err(error) => {
                 eprintln!("{error}");
-                return std::process::ExitCode::from(Verdict::ToolFailure.exit_code() as u8);
+                return ExitCode::from(Verdict::ToolFailure.exit_code() as u8);
             }
         };
         let threshold = match parse_severity(fail_on) {
             Ok(value) => value,
             Err(message) => {
                 eprintln!("{message}");
-                return std::process::ExitCode::from(Verdict::ToolFailure.exit_code() as u8);
+                return ExitCode::from(Verdict::ToolFailure.exit_code() as u8);
             }
         };
         let report = brake::check::check_contracts(path, &config_value, None, None, false);
-        print!("{}", brake::render::text::render(&report));
-        return std::process::ExitCode::from(report.exit_code(threshold) as u8);
+        let output = match render_report(&report, format) {
+            Ok(value) => value,
+            Err(error) => {
+                eprintln!("{error}");
+                return ExitCode::from(Verdict::ToolFailure.exit_code() as u8);
+            }
+        };
+        print!("{output}");
+        return ExitCode::from(report.exit_code(threshold) as u8);
+    }
+
+    if let Command::Diff { config, format } = &cli.command {
+        let config_value = match brake::config::Config::from_path(config) {
+            Ok(value) => value,
+            Err(error) => {
+                eprintln!("{error}");
+                return ExitCode::from(Verdict::ToolFailure.exit_code() as u8);
+            }
+        };
+        let report =
+            brake::check::check_contracts(&PathBuf::from("."), &config_value, None, None, false);
+        let output = match render_report(&report, format) {
+            Ok(value) => value,
+            Err(error) => {
+                eprintln!("{error}");
+                return ExitCode::from(Verdict::ToolFailure.exit_code() as u8);
+            }
+        };
+        print!("{output}");
+        return ExitCode::from(Verdict::Clean.exit_code() as u8);
     }
 
     let unimplemented = match &cli.command {
@@ -189,7 +227,7 @@ fn main() -> std::process::ExitCode {
         Verdict::ToolFailure.exit_code(),
     );
 
-    std::process::ExitCode::from(Verdict::ToolFailure.exit_code() as u8)
+    ExitCode::from(Verdict::ToolFailure.exit_code() as u8)
 }
 
 fn parse_severity(input: &str) -> Result<Severity, String> {
@@ -201,4 +239,37 @@ fn parse_severity(input: &str) -> Result<Severity, String> {
             "unknown severity `{input}`; expected one of: info, warning, error"
         )),
     }
+}
+
+fn render_report(report: &brake::report::Report, requested_format: &str) -> Result<String, String> {
+    match normalize_format(requested_format)? {
+        OutputFormat::Text => Ok(brake::render::text::render(report)),
+        OutputFormat::Json => Ok(brake::render::json::render(report)),
+        OutputFormat::Sarif => Err("SARIF output is not implemented yet".to_owned()),
+    }
+}
+
+fn normalize_format(requested_format: &str) -> Result<OutputFormat, String> {
+    let normalized = requested_format.trim().to_ascii_lowercase();
+    match normalized.as_str() {
+        "text" => Ok(OutputFormat::Text),
+        "json" => Ok(OutputFormat::Json),
+        "sarif" => Ok(OutputFormat::Sarif),
+        "auto" => {
+            if std::io::stdout().is_terminal() {
+                Ok(OutputFormat::Text)
+            } else {
+                Ok(OutputFormat::Json)
+            }
+        }
+        _ => Err(format!(
+            "unknown format `{requested_format}`; expected one of: auto, text, json, sarif"
+        )),
+    }
+}
+
+enum OutputFormat {
+    Text,
+    Json,
+    Sarif,
 }
