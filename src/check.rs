@@ -136,6 +136,16 @@ pub fn check_contract(
             ));
             return report;
         }
+        // The baseline resolved, but this contract is not in it: the contract
+        // is new. Nothing existed to break, so this is a note, not a failure.
+        Err(error @ BaselineError::AbsentFromBaseline { .. }) => {
+            report.findings.push(rules::synthetic(
+                "contract-new",
+                &contract.name,
+                format!("{error}. Nothing was compared"),
+            ));
+            return report;
+        }
         Err(error) => {
             report.unavailable.push(Unavailable {
                 contract: Some(contract.name.clone()),
@@ -748,6 +758,37 @@ paths:
         );
         assert_eq!(report.findings[0].rule_id, "baseline-unconfigured");
         assert_eq!(report.findings[0].severity, Severity::Info);
+    }
+
+    #[test]
+    fn a_contract_added_by_this_change_is_new_not_broken() {
+        let repo = repo_with(&[("api/openapi.yaml", SPEC)]);
+        run_git(repo.path(), &["init", "-b", "main"]);
+        run_git(repo.path(), &["config", "user.name", "Brake Test"]);
+        run_git(repo.path(), &["config", "user.email", "brake@example.com"]);
+        fs::write(repo.path().join("README.md"), "# repo\n").expect("write");
+        run_git(repo.path(), &["add", "README.md"]);
+        run_git(repo.path(), &["commit", "-m", "before the api existed"]);
+        run_git(repo.path(), &["add", "api/openapi.yaml"]);
+        run_git(repo.path(), &["commit", "-m", "add the api"]);
+
+        let mut config = config_of(vec![contract_at("payments", "api/openapi.yaml", "unused")]);
+        config.contracts[0].baseline = Some(Baseline::GitMergeBase {
+            reference: "HEAD~1".to_owned(),
+        });
+
+        let report = check(repo.path(), &config, &Scope::All, &Options::default());
+        assert_eq!(
+            report.exit_code(Severity::Error),
+            0,
+            "a newly added contract cannot have broken anything: {report:?}"
+        );
+        assert!(
+            report
+                .findings
+                .iter()
+                .any(|finding| finding.rule_id == "contract-new")
+        );
     }
 
     #[test]

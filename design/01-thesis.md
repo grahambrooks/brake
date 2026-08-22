@@ -1,8 +1,9 @@
 # 01 — Thesis
 
-**Nothing here is implemented.** This document exists so implementation can start
-anywhere without re-deriving the decisions, and so a decision that turns out to
-be wrong can be found and changed in one place.
+This document exists so implementation can start anywhere without re-deriving
+the decisions, and so a decision that turns out to be wrong can be found and
+changed in one place. It remains the source of truth for scope: the
+"Deliberately not built" list below is still binding.
 
 ---
 

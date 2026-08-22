@@ -21,8 +21,25 @@ including what is deliberately *not* being built — check it before
 
 ## Status
 
-Nothing is implemented. M0 (scaffold) is done; M1 is the walking skeleton in
-[design/03-implementation-plan.md](design/03-implementation-plan.md) §5.
+M0–M6 are done, and so are M7 (protobuf) and M8 (GraphQL). All three ingesters
+produce the same `Contract` and share one comparator; `check`, `analyze`,
+`diff` and `explain` work; text, JSON and SARIF all render.
+
+The rule catalogue lives in `src/rules/catalogue.rs` and is the single source
+of truth — [docs/rules.md](docs/rules.md) is generated from it by `make docs`
+and a test fails if the two drift.
+
+What is worth knowing before changing anything:
+
+- **The five self-defence tests are in `tests/self_defence.rs`.** They defend
+  the numbered guarantees in
+  [design/02-contract-gates.md](design/02-contract-gates.md) §6.1. If one of
+  them starts failing, a claim the README makes has stopped being true.
+- **`tests/cli.rs` covers the binary's own surface.** A dropped argument in
+  `main.rs` is invisible to library tests; that is how `brake check <path>`
+  once ignored its paths and checked everything.
+- **`brake` gates its own fixture contract** (`api/payments-openapi.yaml` via
+  `brake.toml`). `make self-check` runs it.
 
 ## Core constraints
 

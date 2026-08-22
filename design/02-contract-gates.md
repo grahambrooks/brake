@@ -1,7 +1,10 @@
 # 02 — API contract gates
 
-**Not implemented.** This is the specification; build order is in
-[03-implementation-plan.md](03-implementation-plan.md).
+This is the specification; build order is in
+[03-implementation-plan.md](03-implementation-plan.md). It is implemented as
+written — where the shipped behaviour extends it, the extension is noted
+inline. The rule catalogue as built is generated into
+[../docs/rules.md](../docs/rules.md).
 
 This document specifies the check itself: what a contract is, what counts as a
 breaking change, what the tool guarantees about its own determinism, and what it

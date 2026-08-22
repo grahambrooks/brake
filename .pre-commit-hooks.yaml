@@ -1,0 +1,31 @@
+# Consumed by pre-commit and prek from other repositories:
+#
+#   repos:
+#     - repo: https://github.com/grahambrooks/brake
+#       rev: v2026.8.0
+#       hooks:
+#         - id: brake
+#
+# `pass_filenames: true` is the point of the hook. brake scopes the run to the
+# contracts among the files it is given, so a repository with pre-existing
+# findings still passes a commit that does not add a new one. Checking
+# everything on every commit is what makes a gate get uninstalled.
+- id: brake
+  name: brake
+  description: Check changed API contracts for backward compatibility.
+  entry: brake check --format text
+  language: rust
+  pass_filenames: true
+  require_serial: true
+  files: \.(ya?ml|json|proto|graphqls?|gql)$
+
+# The whole repository, for a CI job rather than a commit hook. Every contract,
+# every rule, including the advisory ones.
+- id: brake-analyze
+  name: brake analyze
+  description: Check every configured API contract in the repository.
+  entry: brake analyze .
+  language: rust
+  pass_filenames: false
+  require_serial: true
+  always_run: true

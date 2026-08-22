@@ -153,11 +153,14 @@ fn resolve_git_merge_base_baseline(
             path: contract.source.clone(),
             details: source.to_string(),
         })?
-        .ok_or_else(|| BaselineError::ResolveMergeBasePath {
+        // The ref resolved; the file simply was not there yet. A contract
+        // added in this change has nothing to be compared against, and that is
+        // not a broken gate — failing here would make every new API file a CI
+        // failure on the commit that introduces it.
+        .ok_or_else(|| BaselineError::AbsentFromBaseline {
             contract: contract.name.clone(),
-            reference: reference.to_owned(),
+            reference: format!("the merge-base with `{reference}`"),
             path: contract.source.clone(),
-            details: "path not found in merge-base tree".to_owned(),
         })?;
 
     let object = entry
@@ -191,6 +194,15 @@ fn resolve_git_merge_base_baseline(
 pub enum BaselineError {
     #[error("contract `{contract}` has no configured baseline")]
     MissingBaseline { contract: String },
+    #[error(
+        "contract `{contract}` source `{path}` does not exist in {reference}, \
+         so there is no previous version to compare against"
+    )]
+    AbsentFromBaseline {
+        contract: String,
+        reference: String,
+        path: PathBuf,
+    },
     #[error("failed to read baseline file for contract `{contract}` at {path}: {source}")]
     ReadFile {
         contract: String,

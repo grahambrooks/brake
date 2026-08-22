@@ -1,0 +1,15 @@
+# brake, gating its own fixture contract.
+#
+# `git-merge-base` is the recommended default and the reason is not stylistic:
+# it does not fire on changes another pull request already landed, and the
+# merge-base advances on every merge, so history is forgiven automatically.
+# That is the ratchet, without a state file.
+
+[defaults]
+compatibility = "wire-json"
+baseline = { git-merge-base = "origin/main" }
+
+[[contract]]
+name = "payments"
+format = "openapi"
+source = "api/payments-openapi.yaml"

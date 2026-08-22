@@ -345,6 +345,16 @@ failure and exits 2. An *unconfigured* baseline exits 0 with this note, because 
 over configuration nobody has written yet teaches a team to disable the tool.",
     },
     Rule {
+        id: "contract-new",
+        severity: Severity::Info,
+        level: Compatibility::Wire,
+        summary: "A contract has no previous version in the baseline.",
+        explanation: "The contract is new: it does not exist in the baseline, so there is nothing \
+it could have broken. This is deliberately not a tool failure — a `git-merge-base` baseline does \
+not contain a file added by the change being checked, and failing there would make every new API \
+file fail CI on the commit that introduces it. The next commit compares normally.",
+    },
+    Rule {
         id: "contract-unconfigured",
         severity: Severity::Info,
         level: Compatibility::Wire,
@@ -398,6 +408,72 @@ pub fn rule_for(kind: ChangeKind) -> &'static Rule {
         ChangeKind::ContractPartial => "contract-partial",
     };
     lookup(id).expect("every ChangeKind maps to a catalogued rule")
+}
+
+/// The catalogue as Markdown, with one `#`-anchor per rule id.
+///
+/// `docs/rules.md` is generated from this rather than maintained by hand: it
+/// exists because the SARIF `helpUri` needs somewhere to point, and a
+/// hand-written copy of the catalogue would be wrong within a month. A test
+/// asserts the committed file still matches.
+#[must_use]
+pub fn markdown() -> String {
+    let mut out = String::new();
+    out.push_str("# Rule catalogue\n\n");
+    out.push_str(
+        "<!-- Generated from `src/rules/catalogue.rs` by `make docs`. Do not edit by hand. -->\n\n",
+    );
+    out.push_str(
+        "Every rule brake can report, why it exists, and the lowest compatibility level at which \
+it fires. A rule outside the selected level does not fire at all — it is not downgraded to a \
+warning, because a warning is a thing a human has to read and dismiss. The levels are specified \
+in [design/02-contract-gates.md](../design/02-contract-gates.md).\n\n",
+    );
+    out.push_str(
+        "Run `brake explain <rule-id>` to read any of this at the moment you are blocked by it, \
+or `brake explain` with no argument to list the catalogue.\n\n",
+    );
+    out.push_str("| Rule | Severity | Fires from | Summary |\n| --- | --- | --- | --- |\n");
+
+    for rule in RULES {
+        out.push_str(&format!(
+            "| [`{}`](#{}) | {} | `{}` | {} |\n",
+            rule.id,
+            rule.id,
+            severity_name(rule.severity),
+            level_name(rule.level),
+            rule.summary,
+        ));
+    }
+
+    for rule in RULES {
+        out.push_str(&format!(
+            "\n## {}\n\n**{}**\n\nSeverity `{}`, fires from `{}` upward.\n\n{}\n",
+            rule.id,
+            rule.summary,
+            severity_name(rule.severity),
+            level_name(rule.level),
+            rule.explanation,
+        ));
+    }
+    out
+}
+
+fn severity_name(severity: Severity) -> &'static str {
+    match severity {
+        Severity::Info => "info",
+        Severity::Warning => "warning",
+        Severity::Error => "error",
+    }
+}
+
+fn level_name(level: Compatibility) -> &'static str {
+    match level {
+        Compatibility::Wire => "wire",
+        Compatibility::WireJson => "wire-json",
+        Compatibility::Surface => "surface",
+        Compatibility::Strict => "strict",
+    }
 }
 
 #[must_use]

@@ -24,6 +24,8 @@ help:
 	@echo 'make build        debug build'
 	@echo 'make test         tests only'
 	@echo 'make eval-tests   user-guide evaluation test matrix'
+	@echo 'make docs         regenerate docs/rules.md from the catalogue'
+	@echo 'make self-check   run brake against its own fixture contract'
 	@echo 'make version      print the next version'
 	@echo 'make release-dry  show what a release would do, without doing it'
 
@@ -44,6 +46,16 @@ test:
 .PHONY: eval-tests
 eval-tests:
 	cargo test --all-features --test user_guide_cases
+
+.PHONY: docs
+docs:
+	BRAKE_BLESS=1 cargo test --all-features --test docs_match_the_catalogue
+
+# brake, applied to itself. The repository carries a fixture contract so the
+# tool gates its own API surface the way it asks consumers to gate theirs.
+.PHONY: self-check
+self-check:
+	cargo run --quiet -- check --format text api/payments-openapi.yaml
 
 .PHONY: fmt
 fmt:

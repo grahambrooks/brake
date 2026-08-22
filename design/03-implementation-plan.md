@@ -129,7 +129,7 @@ green on an empty crate. Trunk-based from the first commit.
 
 **Done when:** `make check` passes and `brake --version` prints the CalVer.
 
-### M1 — Walking skeleton (~4 days)
+### M1 — Walking skeleton (~4 days) ✅
 
 The narrowest end-to-end path: `brake.toml` → OpenAPI ingest → endpoint-set
 comparison → text diagnostic → exit code.
@@ -151,7 +151,7 @@ right line, and the same repository with the endpoint restored exits `0`.
 This is the milestone that proves the pipeline. It ships four rules, which is
 already enough to catch the most common real breakage.
 
-### M2 — The comparator (~8 days)
+### M2 — The comparator (~8 days) ✅
 
 `TypeRef` and the request/response rules. Half the total effort of phase 1, and
 the reason the estimate for this tool is three weeks rather than one.
@@ -175,7 +175,7 @@ The traps, each of which needs a test before the code that handles it:
 and negative test, and a 3.0 spec compared against its faithful 3.1 translation
 produces zero findings.
 
-### M3 — Git baselines and the hook (~3 days)
+### M3 — Git baselines and the hook (~3 days) ✅
 
 - `baseline.rs` gains `git` and `git-merge-base` via `gix`
 - `brake check --since <ref>`
@@ -189,7 +189,7 @@ that does not add a new one. That second half is the ratchet claim from
 [01-thesis.md](01-thesis.md) and it is the one that must be demonstrated rather
 than asserted.
 
-### M4 — Output and explanation (~3 days)
+### M4 — Output and explanation (~3 days) ✅
 
 - `render/json.rs`, `render/sarif.rs`
 - `brake explain <rule-id>`, with the rationale text living in
@@ -201,7 +201,7 @@ than asserted.
 Scanning upload annotates the correct line of the OpenAPI file in a real
 repository, and `brake explain` covers every rule ID with no placeholder text.
 
-### M5 — Levels and suppressions (~3 days)
+### M5 — Levels and suppressions (~3 days) ✅
 
 - `surface` and `strict`
 - Suppression matching, `stale-allow`, `expired-allow`, `--as-of`
@@ -211,18 +211,32 @@ repository, and `brake explain` covers every rule ID with no placeholder text.
 and an expired suppression fails with exit `1` while `--as-of` before the expiry
 date passes.
 
-### M6 — Drift (~2 days)
+### M6 — Drift (~2 days) ✅
 
 `[contract.generated]` and `brake check --drift`.
 
 **Done when:** a fixture whose generator output diverges from the committed
 artifact fails, and the subprocess is provably not reachable without the flag.
 
-### M7 — Protobuf, M8 — GraphQL
+### M7 — Protobuf ✅, M8 — GraphQL ✅
 
-Deferred, and each is a new ingester against an unchanged comparator. If either
-requires a change to `compare/`, stop and fix the normalisation instead — that
-is the signal the §2 bet was wrong.
+Each is a new ingester against an unchanged comparator. The §2 bet held: no
+`match` on format appears in `compare/`. Two normalisations were needed to keep
+it that way, and both belong in `contract/` exactly as the bet predicted.
+
+- **Wire numbers.** Protobuf compatibility is defined by field number, not
+  name. `Field::number` and `TypeRef::Enum::numbers` carry it into the model,
+  and `compare/` uses the number as the field's identity wherever both sides
+  have one. Formats without wire numbers leave it `None` and compare by name.
+  Without this, renumbering — the canonical protobuf break — is invisible.
+- **Streaming as a media type.** A unary method becoming streaming is modelled
+  as `application/grpc` becoming `application/grpc+stream`, so it surfaces
+  through `request-media-type-removed` rather than needing a protobuf-shaped
+  flag on `Endpoint`.
+
+GraphQL needed no comparator change at all. Union members carry a
+`__typename` field, which is both how a consumer actually discriminates them
+and what keeps two structurally identical members distinct.
 
 ### Total
 
