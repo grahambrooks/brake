@@ -1,2 +1,14 @@
-[hooks.brake]
-command = "cargo run -- check api/payments-openapi.yaml"
+[[repos]]
+repo = "local"
+hooks = [
+  {
+    id = "brake-check",
+    name = "brake check",
+    description = "Check changed API contracts for backward compatibility.",
+    entry = "cargo run --quiet -- check --format text",
+    language = "system",
+    pass_filenames = true,
+    require_serial = true,
+    files = "(^|/)api/.*\\.(ya?ml|json|proto|graphql)$"
+  }
+]
