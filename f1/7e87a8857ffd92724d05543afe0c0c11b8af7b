@@ -1,0 +1,29 @@
+src/render/mod.rs
+  s_0cb991f403e29b::t_aeed4b1d576de5 1
+src/main.rs
+  s_0cb991f403e29b::t_0d0750afc261e9 199-200
+  s_0cb991f403e29b::t_9b73ca98b4ec7a 15,129,136,146-154,161,169,176,180-198,201-209,230,243,249,251,263-264,268,270
+  s_0cb991f403e29b::t_05f30f0273803b 120,244-248,250,252-262,265-267,269,271-275
+src/render/json.rs
+  s_0cb991f403e29b::t_dd532e0831c540 1-95
+Cargo.toml
+  s_0cb991f403e29b::t_fab01cae9130c1 58
+Cargo.lock
+  s_0cb991f403e29b::t_1a61b1a8e371cd 141,1771-1783,2088-2093
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.23",
+  "base_commit_sha": "f17e87a8857ffd92724d05543afe0c0c11b8af7b",
+  "prompts": {},
+  "sessions": {
+    "s_0cb991f403e29b": {
+      "agent_id": {
+        "tool": "github-copilot-cli",
+        "id": "eaeadcb9-4369-46ec-8304-c581569c7aac",
+        "model": "auto"
+      },
+      "human_author": "Graham Brooks <graham@grahambrooks.com>"
+    }
+  }
+}
