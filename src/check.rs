@@ -5,8 +5,8 @@ use std::process::Command;
 use crate::Severity;
 use crate::baseline;
 use crate::compare;
-use crate::config::{Config, ContractConfig, Defaults};
-use crate::contract::openapi;
+use crate::config::{Config, ContractConfig, ContractFormat, Defaults};
+use crate::contract::{self, Contract};
 use crate::report::{Report, Unavailable};
 use crate::rules;
 
@@ -44,20 +44,25 @@ pub fn check_contract(
         }
     };
 
-    let base_contract = match openapi::ingest(&resolved.path.to_string_lossy(), &resolved.bytes) {
+    let base_contract = match ingest_contract(
+        contract.format,
+        &resolved.path.to_string_lossy(),
+        &resolved.bytes,
+    ) {
         Ok(contract_data) => contract_data,
         Err(error) => {
             let finding = rules::contract_unreachable(&contract.name, &error.to_string(), None);
             return Report::new(vec![finding], Vec::new(), 1);
         }
     };
-    let head_contract = match openapi::ingest(&head_path.to_string_lossy(), &head_bytes) {
-        Ok(contract_data) => contract_data,
-        Err(error) => {
-            let finding = rules::contract_unreachable(&contract.name, &error.to_string(), None);
-            return Report::new(vec![finding], Vec::new(), 1);
-        }
-    };
+    let head_contract =
+        match ingest_contract(contract.format, &head_path.to_string_lossy(), &head_bytes) {
+            Ok(contract_data) => contract_data,
+            Err(error) => {
+                let finding = rules::contract_unreachable(&contract.name, &error.to_string(), None);
+                return Report::new(vec![finding], Vec::new(), 1);
+            }
+        };
 
     let changes = compare::compare_contracts(&base_contract, &head_contract);
     let findings = rules::evaluate(&changes, contract.effective_compatibility(defaults));
@@ -102,6 +107,18 @@ pub fn check_contracts(
     }
 
     Report::new(findings, unavailable, scoped_contracts.len())
+}
+
+fn ingest_contract(format: ContractFormat, source: &str, bytes: &[u8]) -> Result<Contract, String> {
+    match format {
+        ContractFormat::Openapi => {
+            contract::openapi::ingest(source, bytes).map_err(|e| e.to_string())
+        }
+        ContractFormat::Proto => contract::proto::ingest(source, bytes).map_err(|e| e.to_string()),
+        ContractFormat::Graphql => {
+            contract::graphql::ingest(source, bytes).map_err(|e| e.to_string())
+        }
+    }
 }
 
 fn generated_drift_finding(
@@ -237,6 +254,30 @@ mod tests {
             baseline: Some(Baseline::File(PathBuf::from(
                 "api/payments-openapi.baseline.yaml",
             ))),
+            allow: Vec::new(),
+            generated: None,
+        }
+    }
+
+    fn proto_contract_fixture() -> ContractConfig {
+        ContractConfig {
+            name: "payments-proto".to_owned(),
+            format: ContractFormat::Proto,
+            source: PathBuf::from("api/payments.proto"),
+            compatibility: None,
+            baseline: Some(Baseline::File(PathBuf::from("api/payments.baseline.proto"))),
+            allow: Vec::new(),
+            generated: None,
+        }
+    }
+
+    fn graphql_contract_fixture() -> ContractConfig {
+        ContractConfig {
+            name: "payments-graphql".to_owned(),
+            format: ContractFormat::Graphql,
+            source: PathBuf::from("api/schema.graphql"),
+            compatibility: None,
+            baseline: Some(Baseline::File(PathBuf::from("api/schema.baseline.graphql"))),
             allow: Vec::new(),
             generated: None,
         }
@@ -505,5 +546,190 @@ paths:
                 .any(|finding| finding.rule_id == "generated-drift")
         );
         assert_eq!(report.exit_code(Severity::Error), 0);
+    }
+
+    #[test]
+    fn protobuf_acceptance_negative_no_change_is_clean() {
+        let repo = tempdir().expect("tempdir");
+        let api_dir = repo.path().join("api");
+        fs::create_dir_all(&api_dir).expect("mkdir api");
+
+        let body = r#"
+syntax = "proto3";
+package payments;
+
+message GetPaymentRequest {
+  string id = 1;
+}
+
+message Payment {
+  string id = 1;
+}
+
+service PaymentService {
+  rpc GetPayment(GetPaymentRequest) returns (Payment);
+}
+"#;
+        fs::write(api_dir.join("payments.baseline.proto"), body).expect("write baseline");
+        fs::write(api_dir.join("payments.proto"), body).expect("write head");
+
+        let defaults = Defaults {
+            compatibility: Compatibility::WireJson,
+            baseline: None,
+        };
+        let report = check_contract(
+            repo.path(),
+            &defaults,
+            &proto_contract_fixture(),
+            None,
+            false,
+        );
+        assert_eq!(report.exit_code(Severity::Error), 0);
+    }
+
+    #[test]
+    fn protobuf_acceptance_positive_removed_rpc_fails() {
+        let repo = tempdir().expect("tempdir");
+        let api_dir = repo.path().join("api");
+        fs::create_dir_all(&api_dir).expect("mkdir api");
+
+        fs::write(
+            api_dir.join("payments.baseline.proto"),
+            r#"
+syntax = "proto3";
+package payments;
+
+message GetPaymentRequest {
+  string id = 1;
+}
+
+message Payment {
+  string id = 1;
+}
+
+service PaymentService {
+  rpc GetPayment(GetPaymentRequest) returns (Payment);
+}
+"#,
+        )
+        .expect("write baseline");
+        fs::write(
+            api_dir.join("payments.proto"),
+            r#"
+syntax = "proto3";
+package payments;
+
+message GetPaymentRequest {
+  string id = 1;
+}
+
+message Payment {
+  string id = 1;
+}
+
+service PaymentService {}
+"#,
+        )
+        .expect("write head");
+
+        let defaults = Defaults {
+            compatibility: Compatibility::WireJson,
+            baseline: None,
+        };
+        let report = check_contract(
+            repo.path(),
+            &defaults,
+            &proto_contract_fixture(),
+            None,
+            false,
+        );
+        assert_eq!(report.exit_code(Severity::Error), 1);
+        assert!(
+            report
+                .findings
+                .iter()
+                .any(|finding| finding.rule_id == "endpoint-removed")
+        );
+    }
+
+    #[test]
+    fn graphql_acceptance_negative_no_change_is_clean() {
+        let repo = tempdir().expect("tempdir");
+        let api_dir = repo.path().join("api");
+        fs::create_dir_all(&api_dir).expect("mkdir api");
+
+        let body = r#"
+type Query {
+  payment(id: ID!): Payment!
+}
+
+type Payment {
+  id: ID!
+}
+"#;
+        fs::write(api_dir.join("schema.baseline.graphql"), body).expect("write baseline");
+        fs::write(api_dir.join("schema.graphql"), body).expect("write head");
+
+        let defaults = Defaults {
+            compatibility: Compatibility::WireJson,
+            baseline: None,
+        };
+        let report = check_contract(
+            repo.path(),
+            &defaults,
+            &graphql_contract_fixture(),
+            None,
+            false,
+        );
+        assert_eq!(report.exit_code(Severity::Error), 0);
+    }
+
+    #[test]
+    fn graphql_acceptance_positive_removed_query_field_fails() {
+        let repo = tempdir().expect("tempdir");
+        let api_dir = repo.path().join("api");
+        fs::create_dir_all(&api_dir).expect("mkdir api");
+
+        fs::write(
+            api_dir.join("schema.baseline.graphql"),
+            r#"
+type Query {
+  payment(id: ID!): Payment!
+}
+
+type Payment {
+  id: ID!
+}
+"#,
+        )
+        .expect("write baseline");
+        fs::write(
+            api_dir.join("schema.graphql"),
+            r#"
+type Query {
+  health: String!
+}
+"#,
+        )
+        .expect("write head");
+
+        let defaults = Defaults {
+            compatibility: Compatibility::WireJson,
+            baseline: None,
+        };
+        let report = check_contract(
+            repo.path(),
+            &defaults,
+            &graphql_contract_fixture(),
+            None,
+            false,
+        );
+        assert_eq!(report.exit_code(Severity::Error), 1);
+        assert!(
+            report
+                .findings
+                .iter()
+                .any(|finding| finding.rule_id == "endpoint-removed")
+        );
     }
 }

@@ -54,6 +54,7 @@ cli = ["dep:clap"]
 clap = { version = "4", features = ["derive"], optional = true }
 gix = "0.86.0"
 apollo-parser = "0.9.0-beta.0"
+prost-types = "0.14"
 protox-parse = "0.9.0"
 saphyr = "0.0.12"
 serde = { version = "1", features = ["derive"] }
