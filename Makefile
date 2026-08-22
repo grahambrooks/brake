@@ -22,6 +22,7 @@ help:
 	@echo 'make check        fmt, clippy, tests — the pre-commit gate'
 	@echo 'make build        debug build'
 	@echo 'make test         tests only'
+	@echo 'make eval-tests   user-guide evaluation test matrix'
 	@echo 'make version      print the next version'
 	@echo 'make release-dry  show what a release would do, without doing it'
 
@@ -38,6 +39,10 @@ build:
 .PHONY: test
 test:
 	cargo test --all-features
+
+.PHONY: eval-tests
+eval-tests:
+	cargo test --all-features --test user_guide_cases
 
 .PHONY: fmt
 fmt:

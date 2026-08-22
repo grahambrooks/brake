@@ -59,6 +59,13 @@ build order.
 Read [design/01-thesis.md](design/01-thesis.md) first — it carries the product
 claim and, more usefully, the list of things deliberately not being built.
 
+## User guide examples
+
+Reference examples and expected outcomes for OpenAPI, Protobuf, and GraphQL are
+documented in [docs/user-guide-test-cases.md](docs/user-guide-test-cases.md).
+The same matrix is exercised in automated acceptance tests at
+`tests/user_guide_cases.rs`.
+
 ## Two scopes, one ruleset
 
 | Surface | When | What runs |
