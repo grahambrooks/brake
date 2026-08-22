@@ -10,6 +10,15 @@
 //! because every item in it is a compatibility obligation on a tool whose
 //! entire subject is compatibility obligations.
 
+pub mod baseline;
+pub mod check;
+pub mod compare;
+pub mod config;
+pub mod contract;
+pub mod render;
+pub mod report;
+pub mod rules;
+
 /// The version reported by `brake --version`, from `Cargo.toml`.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 

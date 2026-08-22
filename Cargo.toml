@@ -52,8 +52,13 @@ cli = ["dep:clap"]
 # discards them.
 [dependencies]
 clap = { version = "4", features = ["derive"], optional = true }
+saphyr = "0.0.12"
+serde = { version = "1", features = ["derive"] }
+thiserror = "2"
+toml = "0.9"
 
 [dev-dependencies]
+tempfile = "3"
 
 [lints.rust]
 unsafe_code = "forbid"
