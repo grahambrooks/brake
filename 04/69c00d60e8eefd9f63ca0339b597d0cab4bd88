@@ -1,0 +1,16 @@
+Cargo.lock
+  h_37b3b27dede911 178
+Cargo.toml
+  h_37b3b27dede911 15
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.23",
+  "base_commit_sha": "0469c00d60e8eefd9f63ca0339b597d0cab4bd88",
+  "prompts": {},
+  "humans": {
+    "h_37b3b27dede911": {
+      "author": "Graham Brooks <graham@grahambrooks.com>"
+    }
+  }
+}
