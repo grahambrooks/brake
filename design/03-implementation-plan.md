@@ -344,7 +344,22 @@ Set up at M0, not later.
 
 - **Trunk-based**, committing directly to `main`
 - **CalVer** `YYYY.M.MICRO`, committed in `Cargo.toml`, bumped by `make release`
-- **`dist`** for the binaries; **Homebrew formula in this repository**
+- **Binaries from a build matrix in `release.yml`**, not `dist`. Five targets:
+  macOS on both architectures, Linux on both, and Windows x86_64. Hand-rolled
+  because the whole thing is about 130 lines of YAML that can be read in one
+  sitting, against a tool that generates and owns the workflow file and has to
+  be kept current. The four Mac/Linux targets exist because the Homebrew
+  formula needs all four to be installable.
+- **Homebrew formula in this repository**, rendered by
+  `.github/render-formula.py` and committed by the release. In this repository
+  rather than a `homebrew-brake` tap, so no second repository and no
+  cross-repository token — at the cost of an explicit URL on `brew tap`. The
+  script refuses to emit a formula referencing an archive that was not built,
+  because that failure would otherwise land on someone else's machine at
+  `brew install`.
+- **Released binaries carry `--features mcp`.** The feature is off by default
+  to spare a library consumer the async runtime; someone downloading a binary
+  has already accepted its size and expects `brake mcp` to work.
 - **crates.io publishing stays manual** — it is the irreversible step, and this
   crate has a library consumer, so a bad publish is someone else's build failure
 - **Verify the published artifact, not the local build.** Download it, check the

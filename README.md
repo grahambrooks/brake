@@ -76,6 +76,29 @@ Read [design/01-thesis.md](design/01-thesis.md) first — it carries the product
 claim and, more usefully, the list of things deliberately not being built.
 [docs/rules.md](docs/rules.md) is the rule catalogue.
 
+## Install
+
+```sh
+brew tap grahambrooks/brake https://github.com/grahambrooks/brake
+brew install brake
+```
+
+The tap needs the URL because the formula lives in this repository rather than
+a separate `homebrew-brake` tap. Prebuilt binaries for macOS (Apple Silicon and
+Intel), Linux (x86_64 and arm64) and Windows are attached to each
+[release](https://github.com/grahambrooks/brake/releases), with a `SHA256SUMS`
+file beside them.
+
+Or from source, which needs a Rust toolchain:
+
+```sh
+cargo install brake                 # the CLI
+cargo install brake --features mcp  # …and the MCP server
+```
+
+The released binaries include the MCP server; a `cargo install` without the
+feature does not, and `brake mcp` will say so.
+
 ## Quick start
 
 ```sh
