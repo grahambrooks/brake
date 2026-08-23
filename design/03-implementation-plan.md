@@ -115,6 +115,7 @@ tempdir.
 | **O3 — diagnostics** | `annotate-snippets` | Same renderer as tropism, so the two tools' output is indistinguishable in a hook. Behind the `cli` feature |
 | **O4 — JSON Schema** | none | No `jsonschema` crate. `brake` compares two schemas structurally; it never validates an instance against one. Pulling in a validator would import a resolution model that fights §6.1's filesystem bound |
 | **O5 — snapshots** | `insta` | Diagnostic rendering is exactly what snapshot tests are for, and the determinism tests (§6) are byte-comparison anyway |
+| **O6 — MCP** | `rmcp`, feature-gated | The official `modelcontextprotocol/rust-sdk`. Costs `tokio` on a synchronous crate, which is why it is not in `default` — see [04-mcp-interface.md](04-mcp-interface.md) §7 |
 
 O1 is the only one worth revisiting, and only before M1 lands.
 
@@ -262,6 +263,25 @@ it that way, and both belong in `contract/` exactly as the bet predicted.
 GraphQL needed no comparator change at all. Union members carry a
 `__typename` field, which is both how a consumer actually discriminates them
 and what keeps two structurally identical members distinct.
+
+### M10 — MCP interface (~4 days), designed
+
+Specified in [04-mcp-interface.md](04-mcp-interface.md), not built. The same
+ruleset consulted at edit time by a coding agent rather than at commit time by
+a hook: four tools, three resources, one prompt, stdio transport, behind a
+non-default `mcp` feature so a consumer taking `default-features = false` is
+unaffected.
+
+The two decisions worth knowing without opening that document:
+
+- **`[contract.generated]` is not honoured over MCP, at all.** An agent that
+  can write `brake.toml` and call a tool honouring it has arbitrary command
+  execution through a tool whose stated purpose is reading files. Drift stays a
+  CLI concern.
+- **`rmcp` requires `tokio`**, which is a real cost for a crate that is
+  otherwise synchronous. The mitigation is the feature flag and keeping the
+  async surface at the transport, so every handler calls the same synchronous
+  library functions the CLI calls.
 
 ### Total
 

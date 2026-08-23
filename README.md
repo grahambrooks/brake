@@ -139,6 +139,17 @@ and tighten without relearning the tool.
 | `surface` | `wire-json` plus anything that breaks generated client code — `operationId` change, path-parameter rename | Consumers generate clients |
 | `strict` | Any non-additive change at all, including new optional fields | Frozen public APIs under contract |
 
+## Using it from an agent
+
+[design/04-mcp-interface.md](design/04-mcp-interface.md) specifies an MCP
+server exposing the same ruleset at edit time, so a coding agent learns that
+renaming a response field breaks consumers while it is drafting the change
+rather than when the hook rejects it. Designed, not yet built.
+
+It exposes no way to run a declared generator command: `--drift` executes a
+command out of a config file, and a tool that honoured it would hand arbitrary
+command execution to anything that can write `brake.toml`.
+
 ## Exit codes
 
 | Code | Meaning |

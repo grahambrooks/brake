@@ -9,7 +9,10 @@ inline. The rule catalogue as built is generated into
 This document specifies the check itself: what a contract is, what counts as a
 breaking change, what the tool guarantees about its own determinism, and what it
 says when it cannot answer. The thesis — why this is a standalone tool, and what
-it deliberately does not do — is [01-thesis.md](01-thesis.md).
+it deliberately does not do — is [01-thesis.md](01-thesis.md). The same ruleset
+is exposed to a coding agent at edit time by
+[04-mcp-interface.md](04-mcp-interface.md), which adds no rule and relaxes no
+guarantee here.
 
 ---
 

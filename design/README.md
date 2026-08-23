@@ -16,11 +16,16 @@ list of things deliberately not being built.
 | [01-thesis.md](01-thesis.md) | Why the tool exists, the name, the two scopes, and what is out of scope on purpose |
 | [02-contract-gates.md](02-contract-gates.md) | The specification: configuration, the contract model, compatibility levels, the rule catalogue, determinism guarantees, the interface |
 | [03-implementation-plan.md](03-implementation-plan.md) | Crate shape, module layout, public API, dependency decisions, milestones with completion conditions, test strategy, risks |
+| [04-mcp-interface.md](04-mcp-interface.md) | The MCP server: the same ruleset consulted at edit time by a coding agent, its tool surface, and the trust posture that constrains it |
 
 ## Status
 
-Nothing is implemented. M0 — the scaffold — is complete; M1 is the walking
-skeleton described in [03-implementation-plan.md](03-implementation-plan.md) §5.
+M0–M9 are built: all three ingesters, one comparator, the four compatibility
+levels, suppressions, drift, and version-controlled baselines. See
+[03-implementation-plan.md](03-implementation-plan.md) §5.
+
+[04-mcp-interface.md](04-mcp-interface.md) is **design only** — M10, not yet
+implemented.
 
 ## The shape of the argument
 

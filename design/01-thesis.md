@@ -152,6 +152,11 @@ cut on purpose.
 - **No network access, ever.** Not behind a flag. `$ref`s resolving to a URL are
   refused, not fetched — remote refs are the single largest source of
   non-determinism in OpenAPI tooling.
+- **Not an API designer.** [04-mcp-interface.md](04-mcp-interface.md) exposes
+  the ruleset to a coding agent, and returns the rationale the catalogue
+  already carries. It does not opine on whether an endpoint should exist or be
+  named well. A rule that cannot break a consumer is still out of scope, and an
+  advice channel makes that boundary more tempting to cross rather than less.
 
 ---
 
@@ -176,3 +181,5 @@ repository carries the part that is hard.
 
 - [02-contract-gates.md](02-contract-gates.md) — the specification
 - [03-implementation-plan.md](03-implementation-plan.md) — build order and milestones
+- [04-mcp-interface.md](04-mcp-interface.md) — the same ruleset, consulted at
+  edit time by a coding agent rather than at commit time by a hook
