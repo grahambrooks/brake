@@ -115,6 +115,13 @@ cargo run --features mcp -- mcp .     # the MCP server, on stdio
 
 `make check` builds `--all-features`, so it covers the MCP path too.
 
+**`make check` is not the whole gate.** CI runs the tests on Linux, macOS *and*
+Windows, and several jobs have no local equivalent — the MSRV pin, the
+library-only build forge depends on, `cargo-deny`, and the generated-docs
+check. A green `make check` on one machine is necessary, not sufficient: the
+Windows `test` job stayed red for a while because `--drift` runs its command
+through `cmd` there, which does not expand `$VAR`. Check the run after pushing.
+
 `make check` must pass before every commit.
 
 ## Testing

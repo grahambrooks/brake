@@ -159,6 +159,18 @@ impl Drop for Client {
     }
 }
 
+/// A shell command that creates `path`, in whichever shell `--drift` would use.
+///
+/// `touch` does not exist in cmd, so a Windows run of this guard used to pass
+/// because the command failed rather than because brake refused to run it.
+fn create_file_command(path: &Path) -> String {
+    if cfg!(windows) {
+        format!("type nul > \\\"{}\\\"", path.display())
+    } else {
+        format!("touch \\\"{}\\\"", path.display())
+    }
+}
+
 fn repo(files: &[(&str, &str)]) -> TempDir {
     let repo = tempdir().expect("tempdir");
     for (path, body) in files {
@@ -448,8 +460,8 @@ fn no_tool_call_can_execute_a_declared_generator() {
             &format!(
                 "[[contract]]\nname=\"payments\"\nformat=\"openapi\"\nsource=\"api/c.yaml\"\n\
                  baseline={{file=\"api/c.baseline.yaml\"}}\n\
-                 [contract.generated]\ncommand = \"touch {}\"\n",
-                witness.display()
+                 [contract.generated]\ncommand = \"{}\"\n",
+                create_file_command(&witness)
             ),
         ),
         ("api/c.baseline.yaml", BASE),
@@ -473,7 +485,7 @@ fn no_tool_call_can_execute_a_declared_generator() {
             "proposed": HEAD_BREAKS,
             "contract": "payments",
             "drift": true,
-            "generated": { "command": "touch /tmp/brake-should-never-run" },
+            "generated": { "command": "brake-should-never-run" },
         }),
     );
     client.request("resources/read", json!({ "uri": "brake://config" }));

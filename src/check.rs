@@ -567,6 +567,15 @@ paths:
         repo
     }
 
+    /// A shell command that creates `path`, in whichever shell `--drift` uses.
+    fn create_file_command(path: &std::path::Path) -> String {
+        if cfg!(windows) {
+            format!("type nul > \"{}\"", path.display())
+        } else {
+            format!("touch \"{}\"", path.display())
+        }
+    }
+
     fn run_git(repo: &Path, args: &[&str]) {
         let output = Command::new("git")
             .args(args)
@@ -916,8 +925,16 @@ paths:
             ("api/openapi.yaml", SPEC),
         ]);
         let mut contract = contract_at("payments", "api/openapi.yaml", "api/openapi.baseline.yaml");
+        // `--drift` runs the command through the platform shell, so the
+        // fixture has to speak the one it will get. cmd does not expand
+        // `$VAR`, which is why this test was failing on Windows CI while
+        // `make check` stayed green on a developer's machine.
         contract.generated = Some(crate::config::GeneratedConfig {
-            command: "cat \"$BRAKE_REPO_ROOT/api/openapi.yaml\"".to_owned(),
+            command: if cfg!(windows) {
+                "cat \"%BRAKE_REPO_ROOT%/api/openapi.yaml\"".to_owned()
+            } else {
+                "cat \"$BRAKE_REPO_ROOT/api/openapi.yaml\"".to_owned()
+            },
         });
         let config = config_of(vec![contract]);
 
@@ -976,7 +993,10 @@ paths:
         ]);
         let mut contract = contract_at("payments", "api/openapi.yaml", "api/openapi.baseline.yaml");
         contract.generated = Some(crate::config::GeneratedConfig {
-            command: format!("touch {}", witness.display()),
+            // `touch` does not exist in cmd, so on Windows this guard used to
+            // pass because the command failed rather than because brake
+            // refused to run it. A guard that cannot fail is not a guard.
+            command: create_file_command(&witness),
         });
         let config = config_of(vec![contract]);
 

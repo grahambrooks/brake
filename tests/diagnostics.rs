@@ -157,12 +157,46 @@ fn json_output_for_a_response_field_removal() {
 #[test]
 fn sarif_output_for_a_response_field_removal() {
     let report = report_for(Compatibility::WireJson, BASELINE, HEAD);
-    let value: serde_json::Value =
+    let mut value: serde_json::Value =
         serde_json::from_str(&sarif::render(&report)).expect("valid SARIF");
+
+    // SARIF reports the tool version, and it should. Pinning it in a snapshot
+    // means `make release` — which bumps the version *after* running the gate
+    // — leaves CI red on the release commit. Redacted here so the snapshot
+    // covers the shape, and asserted separately so the field is still checked.
+    let driver = &mut value["runs"][0]["tool"]["driver"];
+    assert_eq!(driver["version"], brake::VERSION);
+    assert_eq!(driver["semanticVersion"], brake::VERSION);
+    driver["version"] = serde_json::json!("[version]");
+    driver["semanticVersion"] = serde_json::json!("[version]");
+
     insta::assert_snapshot!(
         "sarif_response_field_removed",
         serde_json::to_string_pretty(&value).expect("pretty")
     );
+}
+
+/// Nothing else may pin the version either.
+///
+/// A snapshot that embeds it is a release-time landmine: it passes when the
+/// gate runs and fails after the bump, on a commit already tagged and pushed.
+#[test]
+fn no_snapshot_embeds_the_crate_version() {
+    let directory = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/snapshots");
+    let entries = fs::read_dir(&directory).expect("snapshots directory");
+
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.extension().is_none_or(|extension| extension != "snap") {
+            continue;
+        }
+        let body = fs::read_to_string(&path).expect("read snapshot");
+        assert!(
+            !body.contains(brake::VERSION),
+            "{} pins the crate version, so the next `make release` will break it",
+            path.display()
+        );
+    }
 }
 
 /// A head that trips exactly one new rule at each level, so the snapshot is a

@@ -129,8 +129,8 @@ expression: "serde_json::to_string_pretty(&value).expect(\"pretty\")"
               }
             }
           ],
-          "semanticVersion": "2026.8.0",
-          "version": "2026.8.0"
+          "semanticVersion": "[version]",
+          "version": "[version]"
         }
       }
     }
