@@ -1,0 +1,84 @@
+design/03-implementation-plan.md
+  s_c2a12af0e191ee::t_3b53486dcdb060 267-283
+tests/cli.rs
+  s_c2a12af0e191ee::t_c268ec9af05728 595-665
+src/main.rs
+  s_c2a12af0e191ee::t_3b53486dcdb060 278-281
+  s_c2a12af0e191ee::t_21ec373d5c9e05 257,264-277,282-292
+docs/rules.md
+  s_c2a12af0e191ee::t_7fa04055c9c41e 56-64,73-81,90-96,105-111,120-126,143-149,158-164,173-179,188-196,205-211,228-234,243-251,260-266,283-291,300-306,315-321,338-344,353-357,366-372,381-387,396-402,411-415,424-430,439-442
+  s_c2a12af0e191ee::t_9fffa2d1ca4d1d 443
+README.md
+  s_c2a12af0e191ee::t_3b53486dcdb060 24-33,35-37,40-44
+  s_c2a12af0e191ee::t_82258c450f7bcf 45
+src/rules/mod.rs
+  s_c2a12af0e191ee::t_d7e281123408e4 452-453,455-457
+  s_c2a12af0e191ee::t_4bddd04285c43b 7,42-51,53-56,58
+  s_c2a12af0e191ee::t_d44804a341b743 27-32,52,57,83,177,195
+  s_c2a12af0e191ee::t_78eb09c24cdc2d 59,351,365,394-429,435-451,454,458-462
+  s_c2a12af0e191ee::t_3b53486dcdb060 430-434
+  s_c2a12af0e191ee::t_6c654a8d8285d2 463
+src/render/text.rs
+  s_c2a12af0e191ee::t_ea9d96f6c20a0a 161-162,164
+  s_c2a12af0e191ee::t_8393113a3d7087 181-184
+  s_c2a12af0e191ee::t_401733b66125e3 233
+  s_c2a12af0e191ee::t_3b53486dcdb060 275
+  s_c2a12af0e191ee::t_d7e281123408e4 271,273,278,280-292
+  s_c2a12af0e191ee::t_d9ad0eaccbac04 57-61,101-102,137-160,163,165-169,185
+  s_c2a12af0e191ee::t_3a2ef9893204dd 170-180
+  s_c2a12af0e191ee::t_abb542b32573c0 186-187
+src/check.rs
+  s_c2a12af0e191ee::t_d0b68b71627f81 461
+src/compare/mod.rs
+  s_c2a12af0e191ee::t_87ee441672287e 616-627,632,638,644,649-650,656,662,668,674,680,686,692,706,712,716
+  s_c2a12af0e191ee::t_8419474e2ba5aa 30-38,224-228,234,250
+  s_c2a12af0e191ee::t_63ce691cea15cc 135,163,175,193,557,788,805
+  s_c2a12af0e191ee::t_e4c8e77f0c3078 260,272,310,325,336,367,398,422,436,455,478,500,509,538
+design/02-contract-gates.md
+  s_c2a12af0e191ee::t_5c85358924747d 292-367
+src/rules/strategies.rs
+  s_c2a12af0e191ee::t_3a2ef9893204dd 199-207
+  s_c2a12af0e191ee::t_babf4a54f74815 1-142,148-167,172-181,183-189,195-198,208-221,227-238,244-245
+  s_c2a12af0e191ee::t_3b53486dcdb060 143-147,168-171,182,190-194,222-226,239-243
+src/render/json.rs
+  s_c2a12af0e191ee::t_8810cbf5de0342 29-41,131-149
+  s_c2a12af0e191ee::t_401733b66125e3 94
+  s_c2a12af0e191ee::t_c09b9e817b6fac 150-151
+src/render/sarif.rs
+  s_c2a12af0e191ee::t_401733b66125e3 176
+  s_c2a12af0e191ee::t_8810cbf5de0342 57-68,285-293
+  s_c2a12af0e191ee::t_21a957a4125938 294-296
+design/04-mcp-interface.md
+  s_c2a12af0e191ee::t_2432755a31ada0 55-65,110,113-129,182-183,190-194,196-200,347-352
+src/rules/catalogue.rs
+  s_c2a12af0e191ee::t_092877cdcec902 25-31,84,95,105,114,125,134,145,155,165,174,184,211,221,246,255,264,273,285,295,306,315,325,337,347,359,370,380,390,401,412,422,431
+  s_c2a12af0e191ee::t_7fa04055c9c41e 517-525,528,531-541
+  s_c2a12af0e191ee::t_3b53486dcdb060 56-60,70-74,196-200,231-235,526-527,529-530
+  s_c2a12af0e191ee::t_78eb09c24cdc2d 646-708
+src/report.rs
+  s_c2a12af0e191ee::t_401733b66125e3 98
+tests/snapshots/diagnostics__json_response_field_removed.snap
+  s_c2a12af0e191ee::t_785fabd21c8b58 18-29,31-32,44-60,62-63
+tests/snapshots/diagnostics__sarif_response_field_removed.snap
+  s_c2a12af0e191ee::t_5a47d8742c71f7 32-44,70-87
+tests/snapshots/diagnostics__text_contract_partial.snap
+  s_c2a12af0e191ee::t_e60f85fa88fa26 12,23
+tests/snapshots/diagnostics__text_response_field_removed.snap
+  s_c2a12af0e191ee::t_bb84502b370594 12-16,18-19,28-34,36-37
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.23",
+  "base_commit_sha": "4dc3044e07d35d35f0babb29054aebc86dffe40d",
+  "prompts": {},
+  "sessions": {
+    "s_c2a12af0e191ee": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "067962c6-28a5-4d87-b17d-c8ed040f755d",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Graham Brooks <graham@grahambrooks.com>"
+    }
+  }
+}
