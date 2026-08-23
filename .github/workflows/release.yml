@@ -64,8 +64,20 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: ${{ matrix.target }}
+
+      # Not the action's `targets:` input. That adds the target to the
+      # `stable` toolchain, while rust-toolchain.toml pins `1.98` — a
+      # different rustup toolchain even when stable happens to be 1.98.0.
+      # Cargo obeys the file, so the target has to be added to what the file
+      # selects. Every native target built fine and both cross targets failed
+      # with `can't find crate for core`, which is exactly this.
+      - name: Add the target to the pinned toolchain
+        shell: bash
+        run: |
+          set -euo pipefail
+          rustup show active-toolchain
+          rustup target add ${{ matrix.target }}
+
       - uses: Swatinem/rust-cache@v2
         with:
           key: ${{ matrix.target }}
