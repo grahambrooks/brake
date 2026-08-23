@@ -130,7 +130,35 @@ fn text_diagnostic_for_a_tool_failure() {
         }],
     };
     let report = check(checkout.path(), &config, &Scope::All, &Options::default());
-    insta::assert_snapshot!("text_tool_failure", text::render(&report));
+    insta::assert_snapshot!(
+        "text_tool_failure",
+        // The OS supplies the reason a file could not be read, and words it
+        // differently on each platform. The snapshot is about brake's framing
+        // — "could not check X … this is a tool failure, not an API break" —
+        // so the platform's half is redacted rather than pinned.
+        normalise_os_errors(&text::render(&report))
+    );
+}
+
+/// Replace an OS-supplied error phrase with a marker.
+///
+/// `No such file or directory (os error 2)` on Unix,
+/// `The system cannot find the file specified. (os error 2)` on Windows.
+fn normalise_os_errors(rendered: &str) -> String {
+    let mut out = String::new();
+    for line in rendered.lines() {
+        match line.find("(os error") {
+            Some(index) => {
+                let head = &line[..index];
+                let cut = head.rfind(": ").map_or(head.len(), |at| at + 2);
+                out.push_str(&head[..cut]);
+                out.push_str("<os error>");
+            }
+            None => out.push_str(line),
+        }
+        out.push('\n');
+    }
+    out
 }
 
 #[test]
@@ -176,20 +204,51 @@ fn sarif_output_for_a_response_field_removal() {
     );
 }
 
+/// Nothing may pin platform-specific text either.
+///
+/// An OS error phrase or a backslash path passes on the machine that wrote it
+/// and fails on the next platform CI runs — which is how the Windows job
+/// stayed red while `make check` was green locally.
+#[test]
+fn no_snapshot_pins_platform_specific_text() {
+    for path in snapshot_files() {
+        let body = fs::read_to_string(&path).expect("read snapshot");
+        assert!(
+            !body.contains("(os error"),
+            "{} pins an OS error phrase, which is worded differently per platform",
+            path.display()
+        );
+        // A colon immediately followed by a backslash is a Windows drive
+        // letter and nothing else. Checking for a bare backslash would trip
+        // on insta's own header, which escapes the quotes in `expression:`.
+        assert!(
+            !body.contains(":\\"),
+            "{} pins an absolute Windows path",
+            path.display()
+        );
+    }
+}
+
+fn snapshot_files() -> Vec<PathBuf> {
+    let directory = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/snapshots");
+    fs::read_dir(&directory)
+        .expect("snapshots directory")
+        .flatten()
+        .map(|entry| entry.path())
+        .filter(|path| {
+            path.extension()
+                .is_some_and(|extension| extension == "snap")
+        })
+        .collect()
+}
+
 /// Nothing else may pin the version either.
 ///
 /// A snapshot that embeds it is a release-time landmine: it passes when the
 /// gate runs and fails after the bump, on a commit already tagged and pushed.
 #[test]
 fn no_snapshot_embeds_the_crate_version() {
-    let directory = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/snapshots");
-    let entries = fs::read_dir(&directory).expect("snapshots directory");
-
-    for entry in entries.flatten() {
-        let path = entry.path();
-        if path.extension().is_none_or(|extension| extension != "snap") {
-            continue;
-        }
+    for path in snapshot_files() {
         let body = fs::read_to_string(&path).expect("read snapshot");
         assert!(
             !body.contains(brake::VERSION),
