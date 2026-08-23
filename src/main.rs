@@ -118,6 +118,20 @@ enum Command {
         #[arg(long, short, default_value = "auto")]
         format: String,
     },
+    /// Serve the ruleset over MCP, for a coding agent.
+    ///
+    /// The same checks `brake check` runs, consulted while an API is being
+    /// edited rather than when it is committed. stdio transport; it never
+    /// listens on a port and never runs a declared generator command.
+    #[cfg(feature = "mcp")]
+    Mcp {
+        /// Repository root. Defaults to the working directory.
+        #[arg(default_value = ".")]
+        path: PathBuf,
+        /// Evaluate suppression expiry at this date (YYYY-MM-DD).
+        #[arg(long)]
+        as_of: Option<String>,
+    },
     /// Explain why a rule exists and what to do about it.
     Explain {
         /// A rule ID, for example `response-field-removed`. Omit to list all.
@@ -138,6 +152,9 @@ fn main() -> ExitCode {
 fn run(cli: Cli) -> Result<ExitCode, String> {
     match cli.command {
         Command::Explain { rule } => explain(rule.as_deref()),
+
+        #[cfg(feature = "mcp")]
+        Command::Mcp { path, as_of } => serve_mcp(path, as_of),
 
         Command::Check {
             paths,
@@ -231,6 +248,30 @@ fn run(cli: Cli) -> Result<ExitCode, String> {
             Ok(ExitCode::from(Verdict::Clean.exit_code() as u8))
         }
     }
+}
+
+/// Run the MCP server on stdio.
+///
+/// The runtime is built here rather than with `#[tokio::main]` so the async
+/// surface stays inside this one function: every other path through the binary
+/// is synchronous, and so is every tool handler.
+#[cfg(feature = "mcp")]
+fn serve_mcp(path: PathBuf, as_of: Option<String>) -> Result<ExitCode, String> {
+    let root = path
+        .canonicalize()
+        .map_err(|error| format!("cannot read `{}`: {error}", path.display()))?;
+
+    let context = brake::mcp::handlers::Context::new(root, as_of.unwrap_or_else(today));
+
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .map_err(|error| format!("failed to start the async runtime: {error}"))?;
+
+    runtime
+        .block_on(brake::mcp::serve_stdio(context))
+        .map_err(|error| format!("the MCP server stopped: {error}"))?;
+    Ok(ExitCode::from(Verdict::Clean.exit_code() as u8))
 }
 
 fn explain(rule: Option<&str>) -> Result<ExitCode, String> {

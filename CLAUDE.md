@@ -40,6 +40,13 @@ What is worth knowing before changing anything:
   once ignored its paths and checked everything.
 - **`brake` gates its own fixture contract** (`api/payments-openapi.yaml` via
   `brake.toml`). `make self-check` runs it.
+- **The MCP server is `src/mcp/`, behind the non-default `mcp` feature.**
+  `handlers.rs` is synchronous and transport-free; `server.rs` is the `rmcp`
+  adapter and the only file that knows about async. Keep the split: it is what
+  makes the tools testable without a protocol.
+- **Nothing in `src/mcp/` may reach the `--drift` subprocess path.**
+  `design/04-mcp-interface.md` §5.1 is the reasoning, and
+  `tests/mcp.rs::no_tool_call_can_execute_a_declared_generator` is the guard.
 
 ## Core constraints
 
@@ -95,8 +102,13 @@ src/render/        text, json, sarif
 make check          # fmt, clippy -D warnings, tests — the pre-commit gate
 make build
 make test
+make docs           # regenerate docs/rules.md from the catalogue
+make self-check     # run brake against its own fixture contract
 cargo run -- check api/openapi.yaml
+cargo run --features mcp -- mcp .     # the MCP server, on stdio
 ```
+
+`make check` builds `--all-features`, so it covers the MCP path too.
 
 `make check` must pass before every commit.
 

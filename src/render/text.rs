@@ -7,7 +7,10 @@
 
 use crate::Severity;
 use crate::report::Report;
-use crate::rules::{Finding, catalogue};
+use crate::rules::Finding;
+
+#[cfg(feature = "cli")]
+use crate::rules::catalogue;
 
 #[cfg(feature = "cli")]
 use annotate_snippets::{AnnotationKind, Group, Level, Origin, Renderer, Snippet};

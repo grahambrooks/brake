@@ -281,13 +281,20 @@ part meant to help is worse than no help.
 naming that field, a newly required parameter with two naming that parameter,
 and a purely additive change with none.
 
-### M10 — MCP interface (~4 days), designed
+### M10 — MCP interface ✅
 
-Specified in [04-mcp-interface.md](04-mcp-interface.md), not built. The same
+Specified and built: [04-mcp-interface.md](04-mcp-interface.md). The same
 ruleset consulted at edit time by a coding agent rather than at commit time by
 a hook: four tools, three resources, one prompt, stdio transport, behind a
 non-default `mcp` feature so a consumer taking `default-features = false` is
 unaffected.
+
+`src/mcp/handlers.rs` is synchronous and transport-free — every tool is a plain
+function from arguments to JSON, calling the same library functions the CLI
+calls. `src/mcp/server.rs` is the `rmcp` adapter and the only file that knows
+about async. That split is what keeps the §1 rule honest across a second
+front-end: the adapter decides no more about breaking changes than `main.rs`
+does.
 
 The two decisions worth knowing without opening that document:
 

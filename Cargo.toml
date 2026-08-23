@@ -43,6 +43,15 @@ default = ["cli"]
 # `default-features = false` and gets the ingest/compare/rules core with no
 # argument parsing and no terminal handling.
 cli = ["dep:clap", "dep:annotate-snippets"]
+# The MCP server — `brake mcp`, specified in design/04-mcp-interface.md.
+#
+# Not in `default`, and the reason is the dependency weight: `rmcp`'s server
+# needs tokio, on a crate that is otherwise synchronous. A consumer taking
+# `default-features = false` (forge) is unaffected, and so is anyone building
+# only the CLI. The async surface stops at the transport — every tool handler
+# calls the same synchronous library functions the CLI calls, so there is one
+# implementation of every verdict.
+mcp = ["cli", "dep:rmcp", "dep:tokio"]
 
 # Dependencies are added when the code that uses them is written, not ahead of
 # it — an unused dependency is a supply-chain liability and a lockfile churn
@@ -63,6 +72,8 @@ tempfile = "3"
 thiserror = "2"
 toml = "0.9"
 annotate-snippets = { version = "0.12.16", optional = true }
+rmcp = { version = "3.1.4", default-features = false, features = ["server", "transport-io", "macros"], optional = true }
+tokio = { version = "1.53.1", default-features = false, features = ["rt-multi-thread", "macros", "io-std", "sync"], optional = true }
 
 [dev-dependencies]
 insta = { version = "1.48.0", default-features = false }

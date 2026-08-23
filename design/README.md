@@ -24,8 +24,8 @@ M0–M9 are built: all three ingesters, one comparator, the four compatibility
 levels, suppressions, drift, and version-controlled baselines. See
 [03-implementation-plan.md](03-implementation-plan.md) §5.
 
-[04-mcp-interface.md](04-mcp-interface.md) is **design only** — M10, not yet
-implemented.
+M10, the MCP interface in [04-mcp-interface.md](04-mcp-interface.md), is built
+behind the non-default `mcp` feature.
 
 ## The shape of the argument
 

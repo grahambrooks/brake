@@ -82,6 +82,18 @@ jobs:
         with:
           command: check advisories bans licenses sources
 
+  # The library is a product: forge takes it with default-features = false.
+  # A build that only compiles with the CLI or MCP features on is a broken
+  # obligation to that consumer, and nothing else here would catch it.
+  library-only:
+    name: library without the CLI
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo check --lib --no-default-features
+
   # docs/rules.md is generated; a stale copy sends anyone following a SARIF
   # helpUri to a page that does not describe the rule that fired.
   generated-docs:

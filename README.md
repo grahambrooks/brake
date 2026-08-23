@@ -155,14 +155,39 @@ and tighten without relearning the tool.
 
 ## Using it from an agent
 
-[design/04-mcp-interface.md](design/04-mcp-interface.md) specifies an MCP
-server exposing the same ruleset at edit time, so a coding agent learns that
-renaming a response field breaks consumers while it is drafting the change
-rather than when the hook rejects it. Designed, not yet built.
+`brake mcp` serves the same ruleset over MCP, so a coding agent learns that
+renaming a response field breaks consumers *while it is drafting the change*
+rather than when the hook rejects it. `check_change` takes the proposed
+document as text, so a draft that has not been written to disk can still be
+checked.
 
-It exposes no way to run a declared generator command: `--drift` executes a
+```sh
+cargo install brake --features mcp
+```
+
+```jsonc
+// claude_desktop_config.json, or any MCP client
+{
+  "mcpServers": {
+    "brake": { "command": "brake", "args": ["mcp", "/path/to/your/repo"] }
+  }
+}
+```
+
+Four tools — `check_change`, `compare_contracts`, `explain_rule`,
+`check_repository` — plus the rule catalogue and the evolution strategies as
+readable resources. `compare_contracts` needs no `brake.toml` at all, so it
+works on a repository the agent has never configured.
+
+It exposes **no way to run a declared generator command**. `--drift` executes a
 command out of a config file, and a tool that honoured it would hand arbitrary
-command execution to anything that can write `brake.toml`.
+command execution to anything that can write `brake.toml`. Drift stays a CLI
+concern, run by a person or a CI job that chose to.
+
+The feature is not on by default: the MCP server needs an async runtime, and a
+crate that is otherwise synchronous should not pay for one unless it is asked.
+
+See [design/04-mcp-interface.md](design/04-mcp-interface.md).
 
 ## Exit codes
 

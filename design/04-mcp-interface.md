@@ -1,8 +1,14 @@
 # 04 — MCP interface
 
-**Design only; not implemented.** This document specifies an MCP server that
-exposes the existing ruleset to a coding agent, so that a compatibility break
-is caught while an API is being edited rather than when it is committed.
+**Implemented.** `brake mcp`, behind the non-default `mcp` feature. This
+document specifies an MCP server that exposes the existing ruleset to a coding
+agent, so that a compatibility break is caught while an API is being edited
+rather than when it is committed.
+
+The code is `src/mcp/`, split so the logic is testable without a protocol:
+`handlers.rs` is synchronous and transport-free, `server.rs` is the `rmcp`
+adapter and the only file that knows about async or MCP. `tests/mcp.rs` drives
+the real binary over stdio.
 
 The thesis is [01-thesis.md](01-thesis.md); the ruleset this exposes is
 [02-contract-gates.md](02-contract-gates.md). Nothing here adds a rule, changes
@@ -83,13 +89,18 @@ The core tool, and the one that makes this worth building.
   "arguments": {
     "format": "openapi",                  // openapi | proto | graphql
     "proposed": "<the full document text>",
-    "baseline": {                         // optional; defaults to brake.toml
-      "contract": "payments"              // …or an inline baseline document
-    },
+    "contract": "payments",               // optional; required only when
+                                          // brake.toml declares several
+    "baseline_document": "<text>",        // optional; supply this instead and
+                                          // no brake.toml is needed at all
     "compatibility": "wire-json"          // optional; defaults to configuration
   }
 }
 ```
+
+With several contracts configured and no `contract` given, the tool **refuses
+rather than guesses**, and names them. Picking one would silently compare the
+wrong artifact, and the caller has no way to tell.
 
 `proposed` is document text, not a path, and that is the whole point: an agent
 holds an unsaved draft. The library API in
@@ -155,8 +166,8 @@ the one that makes the acid test in §1 pass. It is `brake diff` without the
 ### 3.3 `explain_rule`
 
 `brake explain`, verbatim. Takes a rule ID, returns severity, the level it
-fires from, the summary, and the full rationale. With no ID, lists the
-catalogue.
+fires from, the summary, the full rationale, and the evolution strategies.
+With no ID, lists the catalogue.
 
 This is what turns a finding into something an agent can act on rather than
 route around, and it is why the catalogue's explanations are written as
@@ -321,26 +332,49 @@ actually bites.
 
 ## 8. Milestone
 
-### M10 — MCP interface (~4 days)
+### M10 — MCP interface ✅
 
-- `brake mcp` behind the `mcp` feature, stdio transport
-- `check_change`, `compare_contracts`, `explain_rule`, `check_repository`
-- `brake://rules`, `brake://rules/{id}`, `brake://config`
-- The `review-api-change` prompt
-- A test asserting `[contract.generated]` is **not** honoured over MCP, in the
-  shape of §5.1 — the same test `tests/check.rs` already has for the CLI's
-  `--drift` flag being unreachable without it
+`brake mcp` behind the `mcp` feature, stdio transport, with the four tools,
+three resources and one prompt above.
 
-**Done when:** an agent with the server configured is handed
-`response-field-removed` with its rationale for a draft that removes a field,
-against a repository it has not configured; the drift test passes; and the
-determinism tests in `tests/self_defence.rs` pass against the MCP path as well
-as the CLI path, because the guarantees are the tool's and not the CLI's.
+Two things the build settled that the specification had left implicit:
+
+- **A resource URI is matched, not resolved.** `read_resource` compares against
+  the served set and refuses anything else. Treating the URI as a path would
+  have made `file:///etc/passwd` a question worth asking, and a server driven
+  by a model should not be answering that class of question at all.
+- **`instructions` is where the honesty has to land.** The server tells the
+  client, before any call, that `verdict` is authoritative and an empty
+  `findings` list is not a pass unless it says `clean`. The structured shape
+  of §6 only helps a caller that reads it correctly, and this is the one place
+  to say how.
+
+**Done:** `tests/mcp.rs` drives the built binary over stdio through
+`initialize`, `tools/list`, `tools/call`, `resources/read` and `prompts/get`,
+and asserts each of the guarantees below. `src/mcp/handlers.rs` carries 20 more
+against the tools directly.
+
+| Test | Defends |
+| --- | --- |
+| `no_tool_call_can_execute_a_declared_generator` | §5.1 — the load-bearing exclusion, exercised through every tool and with `drift` smuggled into the arguments |
+| `an_unverifiable_payload_is_not_reported_as_clean` | §6 — `verdict: "unverified"`, and not mixed into `findings` |
+| `a_tool_that_cannot_answer_is_an_error_not_a_verdict` | §6 — `isError` is exit code 2, not 1 |
+| `a_remote_ref_is_refused_over_mcp_as_well` | G1 — hermeticity is the tool's, not the CLI's |
+| `an_unknown_resource_is_refused_rather_than_read_as_a_path` | §5.2 — the server reads contracts, not files |
+| `compare_contracts_works_with_no_configuration_at_all` | §1 — the acid test |
+| `check_change_reports_a_break_in_an_unsaved_draft` | §3.1 — and asserts the proposal is never written to disk |
+| `the_server_survives_a_tool_failure_and_answers_the_next_call` | A long-lived server that dies on a bad argument is one an agent gives up on |
 
 ---
 
 ## 9. Open questions
 
+0. **Does the `check_change` / `compare_contracts` split earn itself?** They
+   differ only in where the baseline comes from, and `check_change` with
+   `baseline_document` set *is* `compare_contracts`. Two tools with clear
+   descriptions may route a model better than one with a branching schema, but
+   that is a guess about model behaviour and one round of real use would
+   settle it.
 1. **Should a `propose_migration` tool exist?** For a mechanical break there is
    often a mechanical fix — a removed field becomes a deprecated one, a new
    required parameter becomes optional with a default. brake could emit the
