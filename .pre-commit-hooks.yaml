@@ -17,7 +17,20 @@
   language: rust
   pass_filenames: true
   require_serial: true
-  files: \.(ya?ml|json|proto|graphqls?|gql)$
+  # Deliberately narrow. The previous pattern matched every YAML and JSON in
+  # the repository, so the hook fired on CI config and lockfiles on most
+  # commits. A hook that speaks up about files nobody asked it to look at is a
+  # hook people mute — and `01-thesis.md` is explicit that this is how a gate
+  # gets uninstalled.
+  #
+  # Widen it if your contracts live elsewhere: brake only checks the files a
+  # `[[contract]]` declares, so a broader pattern costs time, not correctness.
+  files: |
+    (?x)^(
+      (.*/)?(api|apis|contracts?|schemas?|proto|protos|idl)/.*\.(ya?ml|json|proto|graphqls?|gql)
+      |(.*/)?(openapi|swagger)[^/]*\.(ya?ml|json)
+      |.*\.(proto|graphqls?|gql)
+    )$
 
 # The whole repository, for a CI job rather than a commit hook. Every contract,
 # every rule, including the advisory ones.

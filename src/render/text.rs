@@ -56,7 +56,16 @@ fn render_finding(report: &Report, finding: &Finding) -> String {
     };
 
     let rule = catalogue::lookup(finding.rule_id);
-    let contract_note = format!("contract: `{}`", finding.contract);
+    // A finding about an undeclared file has no contract to name, and
+    // printing an empty one reads worse than printing none.
+    let contract_note = if finding.contract.is_empty() {
+        finding
+            .path
+            .as_deref()
+            .map_or_else(String::new, |path| format!("file: `{path}`"))
+    } else {
+        format!("contract: `{}`", finding.contract)
+    };
 
     // The help block is what someone reads at the moment they are blocked, so
     // it carries what to *do*. The rationale for why the rule exists is a

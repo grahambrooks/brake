@@ -179,6 +179,20 @@ pub fn contract_unreachable(contract: &str, details: &str, span: Option<Span>) -
     }
 }
 
+/// A finding about a *file* rather than a configured contract.
+///
+/// `contract` is left empty because there is no contract: the whole point of
+/// `contract-unconfigured` is that nothing declares this file. Putting the
+/// path there rendered as `contract: .github/workflows/api-tests.yaml`, which
+/// reads as though it were one.
+#[must_use]
+pub fn about_file(rule_id: &'static str, file: &str, message: String) -> Finding {
+    Finding {
+        path: Some(file.to_owned()),
+        ..synthetic(rule_id, "", message)
+    }
+}
+
 /// Build a finding for a rule that has no `Change` behind it — drift, and the
 /// suppression-hygiene rules.
 #[must_use]

@@ -215,7 +215,10 @@ fn resolve_merge_base(
         .map_err(|error| describe(error.to_string()))?;
     let target = repo
         .rev_parse_single(reference)
-        .map_err(|error| describe(error.to_string()))?;
+        .map_err(|_| BaselineError::UnknownReference {
+            contract: contract.name.clone(),
+            reference: reference.to_owned(),
+        })?;
     let merge_base = repo
         .merge_base(head.detach(), target.detach())
         .map_err(|error| describe(error.to_string()))?;
@@ -436,6 +439,15 @@ pub enum BaselineError {
         spec: String,
         details: String,
     },
+    #[error(
+        "contract `{contract}`: the git ref `{reference}` does not resolve in this \
+         repository.\n\n\
+         If there is no `origin` remote yet, point the baseline at a local branch \
+         (`main`),\nor re-run `brake init` to detect one that exists. In CI, \
+         `actions/checkout` needs\n`fetch-depth: 0` for refs other than the checked-out \
+         commit to be present."
+    )]
+    UnknownReference { contract: String, reference: String },
     #[error("failed to resolve revision `{revision}` for contract `{contract}`: {details}")]
     ResolveRevision {
         contract: String,

@@ -118,6 +118,22 @@ enum Command {
         #[arg(long, short, default_value = "auto")]
         format: String,
     },
+    /// Discover the contracts here and write a brake.toml declaring them.
+    ///
+    /// A file counts as a contract only if brake can actually parse it, so a
+    /// CI workflow that happens to be called `api-something.yaml` is not
+    /// mistaken for an API.
+    Init {
+        /// Repository root. Defaults to the working directory.
+        #[arg(default_value = ".")]
+        path: PathBuf,
+        /// Print the configuration instead of writing it.
+        #[arg(long)]
+        dry_run: bool,
+        /// Overwrite an existing brake.toml.
+        #[arg(long)]
+        force: bool,
+    },
     /// Serve the ruleset over MCP, for a coding agent.
     ///
     /// The same checks `brake check` runs, consulted while an API is being
@@ -156,6 +172,12 @@ fn main() -> ExitCode {
 fn run(cli: Cli) -> Result<ExitCode, String> {
     match cli.command {
         Command::Explain { rule } => explain(rule.as_deref()),
+
+        Command::Init {
+            path,
+            dry_run,
+            force,
+        } => init(&path, dry_run, force),
 
         Command::Mcp { path, as_of } => serve_mcp(path, as_of),
 
@@ -251,6 +273,104 @@ fn run(cli: Cli) -> Result<ExitCode, String> {
             Ok(ExitCode::from(Verdict::Clean.exit_code() as u8))
         }
     }
+}
+
+/// `brake init` — discover contracts and write the configuration.
+fn init(path: &Path, dry_run: bool, force: bool) -> Result<ExitCode, String> {
+    let discovery = brake::init::discover(path);
+    let reference = brake::init::default_baseline_reference(path);
+    let rendered = brake::init::render_config(&discovery, &reference);
+
+    if dry_run {
+        print!("{rendered}");
+        return Ok(ExitCode::from(Verdict::Clean.exit_code() as u8));
+    }
+
+    let destination = path.join("brake.toml");
+    if destination.exists() && !force {
+        // Overwriting would discard hand-written suppressions and their
+        // reasons, which are the most expensive thing in the file.
+        return Err(format!(
+            "`{}` already exists. Pass --force to overwrite it, or --dry-run to \
+             see what init would write",
+            destination.display()
+        ));
+    }
+
+    // Report what was found before writing, so a wrong guess is visible at the
+    // moment it can still be corrected.
+    if discovery.contracts.is_empty() {
+        println!(
+            "no API contracts found under `{}`.\n\n\
+             brake looks for OpenAPI, protobuf and GraphQL files it can parse — a \
+             file is\nonly a contract if the ingester that would gate it can \
+             actually read it. The\nconfiguration below has a commented example \
+             to fill in.\n",
+            path.display()
+        );
+    } else {
+        println!(
+            "found {} contract{}:",
+            discovery.contracts.len(),
+            if discovery.contracts.len() == 1 {
+                ""
+            } else {
+                "s"
+            }
+        );
+        for contract in &discovery.contracts {
+            println!(
+                "  {:<40} {:<8} as `{}`",
+                contract.source,
+                brake::init::format_name(contract.format),
+                contract.name
+            );
+        }
+        if !discovery.baselines_skipped.is_empty() {
+            println!(
+                "\nskipped {} checked-in baseline{} — a baseline is a previous \
+                 version, not a contract to gate:",
+                discovery.baselines_skipped.len(),
+                if discovery.baselines_skipped.len() == 1 {
+                    ""
+                } else {
+                    "s"
+                }
+            );
+            for skipped in &discovery.baselines_skipped {
+                println!("  {skipped}");
+            }
+        }
+        if discovery.truncated {
+            println!(
+                "\nnote: stopped after examining a large number of files, so this \
+                 may be incomplete."
+            );
+        }
+        println!();
+    }
+
+    std::fs::write(&destination, &rendered)
+        .map_err(|error| format!("failed to write `{}`: {error}", destination.display()))?;
+    println!("wrote {}", display_relative(path, &destination));
+
+    match discovery.contracts.first() {
+        Some(contract) => println!(
+            "\nnext:\n  brake check {}\n\n\
+             The baseline is the merge-base with `{reference}`, so a contract that \
+             is new\nto this branch reports as new rather than failing.",
+            contract.source
+        ),
+        None => println!("\nnext: declare a contract in brake.toml, then run `brake check`"),
+    }
+    Ok(ExitCode::from(Verdict::Clean.exit_code() as u8))
+}
+
+fn display_relative(root: &Path, path: &Path) -> String {
+    path.strip_prefix(root).map_or_else(
+        |_| path.display().to_string(),
+        |rest| rest.display().to_string(),
+    )
 }
 
 /// The `mcp` feature is off: say so, and say how to get it.
@@ -384,8 +504,10 @@ fn load(config: Option<&Path>) -> Result<(PathBuf, Config), String> {
             Some(parent) => directory = parent,
             None => {
                 return Err(format!(
-                    "no brake.toml found in `{}` or any parent directory. \
-                     Create one, or pass --config",
+                    "no brake.toml found in `{}` or any parent directory.\n\n\
+                     Run `brake init` to discover the contracts here and write one, \
+                     or\n`brake init --dry-run` to see what it would write first. \
+                     Pass --config to\npoint at a file elsewhere.",
                     start.display()
                 ));
             }

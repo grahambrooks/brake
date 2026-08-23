@@ -78,8 +78,16 @@ claim and, more usefully, the list of things deliberately not being built.
 
 ## Quick start
 
+```sh
+brake init      # finds your contracts and writes brake.toml
+```
+
+It detects contracts by **parsing** them, not by guessing from filenames, so a
+CI workflow that happens to be called `api-tests.yaml` is not mistaken for an
+API. `--dry-run` shows what it would write.
+
 ```toml
-# brake.toml, at the repository root
+# brake.toml, written for you — edit freely, brake never rewrites it
 [defaults]
 compatibility = "wire-json"
 baseline = { git-merge-base = "origin/main" }

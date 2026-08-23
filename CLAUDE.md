@@ -40,6 +40,10 @@ What is worth knowing before changing anything:
   once ignored its paths and checked everything.
 - **`brake` gates its own fixture contract** (`api/payments-openapi.yaml` via
   `brake.toml`). `make self-check` runs it.
+- **Contract detection lives in `src/init.rs::identify` and works by parsing.**
+  `brake init` and the `contract-unconfigured` notice share it, so they cannot
+  disagree about what a contract is. Never reintroduce a filename heuristic:
+  the previous one called `.github/workflows/api-tests.yaml` an API.
 - **The MCP server is `src/mcp/`, behind the non-default `mcp` feature.**
   `handlers.rs` is synchronous and transport-free; `server.rs` is the `rmcp`
   adapter and the only file that knows about async. Keep the split: it is what
@@ -104,6 +108,7 @@ make build
 make test
 make docs           # regenerate docs/rules.md from the catalogue
 make self-check     # run brake against its own fixture contract
+cargo run -- init            # scaffold brake.toml by parsing what is there
 cargo run -- check api/openapi.yaml
 cargo run --features mcp -- mcp .     # the MCP server, on stdio
 ```

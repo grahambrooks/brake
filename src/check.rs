@@ -283,13 +283,13 @@ fn select_by_path<'a>(repo_root: &Path, config: &'a Config, paths: &[PathBuf]) -
             .contracts
             .iter()
             .any(|contract| &display_path(&contract.source) == path);
-        if !configured && looks_like_a_contract(path) {
-            notices.push(rules::synthetic(
+        if !configured && looks_like_a_contract(repo_root, path) {
+            notices.push(rules::about_file(
                 "contract-unconfigured",
                 path,
                 format!(
-                    "`{path}` looks like an API contract but no `[[contract]]` in brake.toml \
-                     declares it, so it was not checked"
+                    "`{path}` parses as an API contract but no `[[contract]]` in brake.toml \
+                     declares it, so it was not checked. `brake init` will declare it"
                 ),
             ));
         }
@@ -298,15 +298,18 @@ fn select_by_path<'a>(repo_root: &Path, config: &'a Config, paths: &[PathBuf]) -
     Selection { contracts, notices }
 }
 
-fn looks_like_a_contract(path: &str) -> bool {
-    let lowered = path.to_ascii_lowercase();
-    [".proto", ".graphql", ".graphqls", ".gql"]
-        .iter()
-        .any(|extension| lowered.ends_with(extension))
-        || ((lowered.ends_with(".yaml") || lowered.ends_with(".yml") || lowered.ends_with(".json"))
-            && (lowered.contains("openapi")
-                || lowered.contains("swagger")
-                || lowered.contains("api")))
+/// Is this file one brake could gate, if it were declared?
+///
+/// Answered by parsing it, not by looking at its name. The first version of
+/// this asked whether the path contained `api`, which called
+/// `.github/workflows/api-tests.yaml` an API and printed a notice about it on
+/// every commit that touched CI. `01-thesis.md` says false positives are how a
+/// hook gets uninstalled — a *loud* one costs more than a quiet one, not less.
+///
+/// Shares its implementation with `brake init`, so the two cannot disagree
+/// about what a contract is.
+fn looks_like_a_contract(repo_root: &Path, path: &str) -> bool {
+    crate::init::identify(&repo_root.join(path)).is_some()
 }
 
 fn select_since<'a>(

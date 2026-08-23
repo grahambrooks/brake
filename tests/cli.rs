@@ -701,3 +701,181 @@ fn brake_mcp_either_serves_or_says_how_to_get_it() {
     assert!(stderr.contains("--features mcp"), "{stderr}");
     assert!(stderr.contains("cargo install brake"), "{stderr}");
 }
+
+/// A repository the way someone actually meets brake: real specs, ordinary
+/// CI config, no brake.toml yet.
+fn unconfigured_repo() -> TempDir {
+    let repo = repo(&[
+        ("api/payments-openapi.yaml", SPEC),
+        ("api/payments-openapi.baseline.yaml", SPEC),
+        (
+            ".github/workflows/api-tests.yaml",
+            "name: api-tests\non: push\n",
+        ),
+        ("package.json", r#"{"name":"app","version":"1.0.0"}"#),
+        (
+            "docker-compose.yml",
+            "services:\n  api:\n    image: nginx\n",
+        ),
+    ]);
+    let git = |args: &[&str]| {
+        let ok = Command::new("git")
+            .args(args)
+            .current_dir(repo.path())
+            .output()
+            .expect("git should launch")
+            .status
+            .success();
+        assert!(ok, "git {args:?}");
+    };
+    git(&["init", "-b", "main"]);
+    git(&["config", "user.name", "Brake Test"]);
+    git(&["config", "user.email", "brake@example.com"]);
+    git(&["add", "."]);
+    git(&["commit", "-m", "init"]);
+    repo
+}
+
+#[test]
+fn the_first_command_a_new_user_runs_names_the_one_that_fixes_it() {
+    let repo = unconfigured_repo();
+    let output = brake(repo.path(), &["check"]);
+
+    assert_eq!(code(&output), 2);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("brake init"),
+        "\"create one\" is not actionable without saying how:\n{stderr}"
+    );
+}
+
+#[test]
+fn init_declares_the_real_contracts_and_ignores_everything_else() {
+    let repo = unconfigured_repo();
+    let output = brake(repo.path(), &["init"]);
+    assert_eq!(
+        code(&output),
+        0,
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let written = fs::read_to_string(repo.path().join("brake.toml")).expect("brake.toml");
+    assert!(written.contains("api/payments-openapi.yaml"), "{written}");
+
+    // The files a filename heuristic would have claimed.
+    assert!(!written.contains("api-tests.yaml"), "{written}");
+    assert!(!written.contains("package.json"), "{written}");
+    assert!(!written.contains("docker-compose"), "{written}");
+    // A baseline is a previous version, not a second contract.
+    assert!(!written.contains("baseline.yaml\""), "{written}");
+}
+
+#[test]
+fn what_init_writes_works_on_the_very_next_command() {
+    // The loop that matters: if the generated config does not survive contact
+    // with `check`, init has moved the wall rather than removed it.
+    let repo = unconfigured_repo();
+    assert_eq!(code(&brake(repo.path(), &["init"])), 0);
+
+    let output = brake(
+        repo.path(),
+        &["check", "api/payments-openapi.yaml", "--format", "text"],
+    );
+    assert_eq!(
+        code(&output),
+        0,
+        "the generated config failed immediately:\nstdout: {}\nstderr: {}",
+        stdout(&output),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    // …and it is a real gate, not one that passes because it checked nothing.
+    fs::write(repo.path().join("api/payments-openapi.yaml"), BROKEN).expect("write");
+    let output = brake(
+        repo.path(),
+        &["check", "api/payments-openapi.yaml", "--format", "text"],
+    );
+    assert_eq!(code(&output), 1, "{}", stdout(&output));
+    assert!(stdout(&output).contains("endpoint-removed"));
+}
+
+#[test]
+fn init_refuses_to_overwrite_without_being_told_to() {
+    let repo = unconfigured_repo();
+    assert_eq!(code(&brake(repo.path(), &["init"])), 0);
+
+    fs::write(
+        repo.path().join("brake.toml"),
+        "# hand-written, do not lose\n",
+    )
+    .expect("write");
+    let output = brake(repo.path(), &["init"]);
+    assert_eq!(code(&output), 2);
+    assert!(String::from_utf8_lossy(&output.stderr).contains("--force"));
+    assert_eq!(
+        fs::read_to_string(repo.path().join("brake.toml")).expect("read"),
+        "# hand-written, do not lose\n",
+        "suppressions and their reasons are the most expensive thing in that file"
+    );
+
+    assert_eq!(code(&brake(repo.path(), &["init", "--force"])), 0);
+}
+
+#[test]
+fn init_dry_run_writes_nothing() {
+    let repo = unconfigured_repo();
+    let output = brake(repo.path(), &["init", "--dry-run"]);
+
+    assert_eq!(code(&output), 0);
+    assert!(
+        stdout(&output).contains("[[contract]]"),
+        "{}",
+        stdout(&output)
+    );
+    assert!(!repo.path().join("brake.toml").exists());
+}
+
+#[test]
+fn an_ordinary_ci_file_does_not_trip_the_contract_notice() {
+    // `01-thesis.md`: false positives are how a hook gets uninstalled. This
+    // one was loud, and fired on any commit touching CI in a repo with `api`
+    // in a path.
+    let repo = unconfigured_repo();
+    assert_eq!(code(&brake(repo.path(), &["init"])), 0);
+
+    let output = brake(
+        repo.path(),
+        &[
+            "check",
+            ".github/workflows/api-tests.yaml",
+            "package.json",
+            "docker-compose.yml",
+            "--format",
+            "text",
+        ],
+    );
+    assert_eq!(code(&output), 0);
+    assert!(
+        !stdout(&output).contains("contract-unconfigured"),
+        "brake called ordinary files APIs:\n{}",
+        stdout(&output)
+    );
+}
+
+#[test]
+fn a_genuinely_undeclared_contract_is_still_pointed_out() {
+    let repo = unconfigured_repo();
+    assert_eq!(code(&brake(repo.path(), &["init"])), 0);
+    fs::write(repo.path().join("api/ledger-openapi.yaml"), SPEC).expect("write");
+
+    let output = brake(
+        repo.path(),
+        &["check", "api/ledger-openapi.yaml", "--format", "text"],
+    );
+    assert_eq!(code(&output), 0, "a note must not block a commit");
+    let text = stdout(&output);
+    assert!(text.contains("contract-unconfigured"), "{text}");
+    // The note is about a file; naming it `contract:` claimed it was one.
+    assert!(text.contains("file: `api/ledger-openapi.yaml`"), "{text}");
+}

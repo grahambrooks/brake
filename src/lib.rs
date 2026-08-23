@@ -35,6 +35,7 @@ pub mod check;
 pub mod compare;
 pub mod config;
 pub mod contract;
+pub mod init;
 pub mod mcp;
 pub mod render;
 pub mod report;
