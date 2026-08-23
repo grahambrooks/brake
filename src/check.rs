@@ -628,8 +628,12 @@ paths:
         assert_eq!(
             report.exit_code(Severity::Error),
             0,
-            "{:?}",
-            report.findings
+            // Both, because an empty `findings` with a non-zero exit means the
+            // generator did not run at all — which is what a shell mismatch
+            // looks like, and the findings list alone does not say so.
+            "findings: {:?}\nunavailable: {:?}",
+            report.findings,
+            report.unavailable
         );
     }
 
@@ -931,7 +935,10 @@ paths:
         // `make check` stayed green on a developer's machine.
         contract.generated = Some(crate::config::GeneratedConfig {
             command: if cfg!(windows) {
-                "cat \"%BRAKE_REPO_ROOT%/api/openapi.yaml\"".to_owned()
+                // cmd's own builtin, with cmd's own variable syntax and path
+                // separators. `type` copies bytes verbatim, unlike `echo`,
+                // which would append CRLF and break the byte comparison.
+                "type \"%BRAKE_REPO_ROOT%\\api\\openapi.yaml\"".to_owned()
             } else {
                 "cat \"$BRAKE_REPO_ROOT/api/openapi.yaml\"".to_owned()
             },
@@ -950,8 +957,12 @@ paths:
         assert_eq!(
             report.exit_code(Severity::Error),
             0,
-            "{:?}",
-            report.findings
+            // Both, because an empty `findings` with a non-zero exit means the
+            // generator did not run at all — which is what a shell mismatch
+            // looks like, and the findings list alone does not say so.
+            "findings: {:?}\nunavailable: {:?}",
+            report.findings,
+            report.unavailable
         );
     }
 
