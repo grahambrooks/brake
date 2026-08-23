@@ -168,10 +168,13 @@ impl Drop for Client {
 /// assertion passed because the command failed rather than because brake
 /// refused it.
 ///
-/// The quotes are backslash-escaped because the result is embedded in a TOML
-/// string in brake.toml, where a bare quote would end it.
+/// Embedded in a TOML *literal* string (single quotes) by the caller, because
+/// a Windows path is full of backslashes and `\U` in `C:\Users` is not a valid
+/// escape in a TOML basic string. That parse failure is what made this test
+/// fail on Windows — and made its first assertion pass for the wrong reason,
+/// since a config that does not load runs no generator either.
 fn create_file_command(path: &Path) -> String {
-    format!("mkdir \\\"{}\\\"", path.display())
+    format!("mkdir \"{}\"", path.display())
 }
 
 fn repo(files: &[(&str, &str)]) -> TempDir {
@@ -463,7 +466,7 @@ fn no_tool_call_can_execute_a_declared_generator() {
             &format!(
                 "[[contract]]\nname=\"payments\"\nformat=\"openapi\"\nsource=\"api/c.yaml\"\n\
                  baseline={{file=\"api/c.baseline.yaml\"}}\n\
-                 [contract.generated]\ncommand = \"{}\"\n",
+                 [contract.generated]\ncommand = '{}'\n",
                 create_file_command(&witness)
             ),
         ),
