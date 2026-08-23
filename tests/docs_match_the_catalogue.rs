@@ -21,9 +21,14 @@ fn the_committed_rules_document_matches_the_catalogue() {
         return;
     }
 
+    // Line endings are normalised on both sides: git checks this file out
+    // with CRLF on Windows, and the catalogue generates LF. Comparing raw
+    // bytes made the check assert the platform's checkout convention rather
+    // than whether the document is current.
     let committed = fs::read_to_string(&path).unwrap_or_default();
     assert_eq!(
-        committed, generated,
+        committed.replace("\r\n", "\n"),
+        generated.replace("\r\n", "\n"),
         "docs/rules.md is out of date — run `make docs`"
     );
 }
