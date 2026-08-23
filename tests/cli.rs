@@ -663,3 +663,41 @@ fn a_finding_names_the_field_its_advice_is_about() {
     assert!(text.contains("optional-with-default"), "{text}");
     assert!(text.contains("`tenant`"), "{text}");
 }
+
+#[test]
+fn the_mcp_subcommand_is_listed_whether_or_not_it_is_built() {
+    // A capability that silently does not exist is one nobody can discover,
+    // which is the CLI equivalent of a clean result brake cannot justify. The
+    // subcommand is always registered; only its implementation is gated.
+    let here = tempdir().expect("tempdir");
+    let help = stdout(&brake(here.path(), &["--help"]));
+    assert!(
+        help.contains("mcp"),
+        "`brake --help` does not mention the MCP server:\n{help}"
+    );
+}
+
+#[test]
+fn brake_mcp_either_serves_or_says_how_to_get_it() {
+    let here = tempdir().expect("tempdir");
+
+    if cfg!(feature = "mcp") {
+        // Built in: it would block on stdio, so assert on the help text
+        // rather than starting it. tests/mcp.rs drives the real thing.
+        let help = stdout(&brake(here.path(), &["mcp", "--help"]));
+        assert!(help.contains("--as-of"), "{help}");
+        return;
+    }
+
+    let output = brake(here.path(), &["mcp", "."]);
+    assert_eq!(
+        code(&output),
+        2,
+        "a subcommand that cannot run must exit 2, not pretend to succeed"
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    // The message has to be actionable: naming the feature is not enough if
+    // the reader still has to work out the command.
+    assert!(stderr.contains("--features mcp"), "{stderr}");
+    assert!(stderr.contains("cargo install brake"), "{stderr}");
+}

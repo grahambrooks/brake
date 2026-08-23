@@ -308,9 +308,9 @@ mcp = ["cli", "dep:rmcp", "dep:tokio"]
 | **M4 — Surface** | A subcommand, not a second binary | One binary is one thing to install and one version to verify at release |
 
 **The cost worth stating.** brake is synchronous and has no async runtime.
-`rmcp`'s server feature requires `tokio`, which is a large dependency for a
-tool whose pitch includes not needing much. Three mitigations, in order of how
-much they matter:
+`rmcp`'s server feature requires `tokio`: measured, that is **+33 crates and
++2.9 MB of binary**, for a tool whose pitch includes not needing much. Three
+mitigations, in order of how much they matter:
 
 1. The `mcp` feature is **not** in `default`. A consumer taking
    `default-features = false` — which forge does — is unaffected, and so is
@@ -319,7 +319,19 @@ much they matter:
    synchronous library functions the CLI calls, so there is one implementation
    of every verdict and no second code path to keep honest.
 3. `cargo-deny` already gates advisories and licences over the whole tree, so
-   the addition is visible rather than assumed.
+   the addition is visible rather than assumed. A CI job compiles the library
+   with `--no-default-features`, because the obligation to forge is exactly the
+   thing nothing else would catch breaking.
+
+**The subcommand is registered either way.** Only its implementation is behind
+the feature: `brake --help` lists `mcp` on every build, and a build without it
+exits `2` naming the feature and the command to install it.
+
+Gating the subcommand itself was the first cut and it was wrong. A capability
+that silently does not exist is one nobody can discover — the CLI equivalent of
+a clean result brake cannot justify, and against everything §6 argues for. The
+same rule that governs a verdict governs the interface: say what you cannot do,
+and say what to do about it.
 
 If the cost is judged too high, the fallback is a separate `brake-mcp` crate in
 this repository depending on the library. That keeps `brake` itself untouched

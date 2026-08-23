@@ -186,6 +186,9 @@ concern, run by a person or a CI job that chose to.
 
 The feature is not on by default: the MCP server needs an async runtime, and a
 crate that is otherwise synchronous should not pay for one unless it is asked.
+`brake --help` lists `mcp` on every build regardless, and a build without the
+feature tells you how to get it rather than pretending the command does not
+exist.
 
 See [design/04-mcp-interface.md](design/04-mcp-interface.md).
 

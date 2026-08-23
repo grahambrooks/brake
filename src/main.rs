@@ -123,7 +123,11 @@ enum Command {
     /// The same checks `brake check` runs, consulted while an API is being
     /// edited rather than when it is committed. stdio transport; it never
     /// listens on a port and never runs a declared generator command.
-    #[cfg(feature = "mcp")]
+    ///
+    /// Needs the `mcp` feature, which is not on by default because the server
+    /// requires an async runtime. The subcommand is listed either way: a
+    /// capability that silently does not exist is one nobody can discover, and
+    /// brake's whole posture is to say what it cannot do rather than go quiet.
     Mcp {
         /// Repository root. Defaults to the working directory.
         #[arg(default_value = ".")]
@@ -153,7 +157,6 @@ fn run(cli: Cli) -> Result<ExitCode, String> {
     match cli.command {
         Command::Explain { rule } => explain(rule.as_deref()),
 
-        #[cfg(feature = "mcp")]
         Command::Mcp { path, as_of } => serve_mcp(path, as_of),
 
         Command::Check {
@@ -248,6 +251,25 @@ fn run(cli: Cli) -> Result<ExitCode, String> {
             Ok(ExitCode::from(Verdict::Clean.exit_code() as u8))
         }
     }
+}
+
+/// The `mcp` feature is off: say so, and say how to get it.
+///
+/// Exiting `2` with an actionable message is the same contract every other
+/// unavailable path here follows — a tool that cannot answer says which, and
+/// what to do about it.
+#[cfg(not(feature = "mcp"))]
+fn serve_mcp(_path: PathBuf, _as_of: Option<String>) -> Result<ExitCode, String> {
+    Err(format!(
+        "this build of brake {} has no MCP server.\n\n\
+         It is behind the `mcp` feature, which is off by default because the \
+         server needs an\nasync runtime that the rest of brake does not. To get it:\n\n    \
+         cargo install brake --features mcp\n\n\
+         or, from a checkout:\n\n    \
+         cargo run --features mcp -- mcp .\n\n\
+         See design/04-mcp-interface.md.",
+        brake::VERSION
+    ))
 }
 
 /// Run the MCP server on stdio.
