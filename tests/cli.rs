@@ -897,3 +897,100 @@ fn a_genuinely_undeclared_contract_is_still_pointed_out() {
     // The note is about a file; naming it `contract:` claimed it was one.
     assert!(text.contains("file: `api/ledger-openapi.yaml`"), "{text}");
 }
+
+#[test]
+fn a_field_level_finding_points_at_the_field_not_the_response() {
+    // The JSON pointer was always exact; the underlined line was the enclosing
+    // response, which is the right file and the wrong line — and the line is
+    // what a reader checks first.
+    let spec = |fields: &str| {
+        format!(
+            "openapi: 3.1.0\npaths:\n  /payments/{{id}}:\n    get:\n\
+             \x20     operationId: getPayment\n      responses:\n        \"200\":\n\
+             \x20         description: ok\n          content:\n\
+             \x20           application/json:\n              schema:\n\
+             \x20               type: object\n                required: [id]\n\
+             \x20               properties:\n{fields}"
+        )
+    };
+    let repo = repo(&[
+        (
+            "brake.toml",
+            "[[contract]]\nname=\"c\"\nformat=\"openapi\"\nsource=\"api/c.yaml\"\n\
+             baseline={file=\"api/c.baseline.yaml\"}\n",
+        ),
+        (
+            "api/c.baseline.yaml",
+            &spec(
+                "                  id: { type: string }\n                  customer_id: { type: string }\n",
+            ),
+        ),
+        (
+            "api/c.yaml",
+            &spec("                  id: { type: string }\n"),
+        ),
+    ]);
+
+    let output = brake(repo.path(), &["check", "--format", "json"]);
+    assert_eq!(code(&output), 1);
+    let parsed: serde_json::Value = serde_json::from_str(&stdout(&output)).expect("json");
+    let finding = &parsed["findings"][0];
+    assert_eq!(finding["rule"], "response-field-removed");
+
+    // `customer_id` is declared on line 16 of the baseline; the response
+    // block it lives in starts at line 7, which is what used to be reported.
+    let line = finding["line"].as_u64().expect("line");
+    assert_eq!(
+        line,
+        16,
+        "expected the line declaring `customer_id`, got {line}:\n{}",
+        stdout(&output)
+    );
+
+    let text = stdout(&brake(repo.path(), &["check", "--format", "text"]));
+    assert!(
+        text.contains("customer_id: { type: string }"),
+        "the diagnostic should quote the field's own line:\n{text}"
+    );
+}
+
+#[test]
+fn a_finding_with_no_field_span_still_locates_the_payload() {
+    // protobuf supplies no field-level spans, so those findings fall back to
+    // the method's span. That is the previous behaviour and still the right
+    // file — the fallback must not produce a missing or zero location.
+    let proto = |payment: &str| {
+        format!(
+            "syntax = \"proto3\";\npackage pay;\nmessage Req {{ string id = 1; }}\n\
+             message Payment {{ {payment} }}\n\
+             service S {{ rpc Get(Req) returns (Payment); }}\n"
+        )
+    };
+    let repo = repo(&[
+        (
+            "brake.toml",
+            "[[contract]]\nname=\"p\"\nformat=\"proto\"\nsource=\"api/p.proto\"\n\
+             baseline={file=\"api/p.baseline.proto\"}\n",
+        ),
+        (
+            "api/p.baseline.proto",
+            &proto("string id = 1; string note = 2;"),
+        ),
+        ("api/p.proto", &proto("string id = 1;")),
+    ]);
+
+    let output = brake(repo.path(), &["check", "--format", "json"]);
+    assert_eq!(code(&output), 1);
+    let parsed: serde_json::Value = serde_json::from_str(&stdout(&output)).expect("json");
+    let finding = &parsed["findings"][0];
+
+    assert!(
+        finding["file"]
+            .as_str()
+            .is_some_and(|f| f.ends_with(".proto"))
+    );
+    assert!(
+        finding["line"].as_u64().is_some_and(|line| line > 0),
+        "a fallback span must still be a real location: {finding}"
+    );
+}

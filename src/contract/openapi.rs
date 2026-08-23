@@ -673,6 +673,9 @@ impl<'a> Ctx<'a> {
                     continue;
                 };
                 let field_pointer = format!("{pointer}/properties/{}", escape_json_pointer(name));
+                // The *key* node, not the schema: `customer_id:` is the line a
+                // reader is looking for, not the `type: string` beneath it.
+                let field_span = span(self.source, name_node, field_pointer.clone());
                 fields.insert(
                     name.to_owned(),
                     Field {
@@ -682,6 +685,7 @@ impl<'a> Ctx<'a> {
                             .and_then(bool_node)
                             .unwrap_or(false),
                         number: None,
+                        span: Some(field_span),
                     },
                 );
             }

@@ -8,7 +8,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use crate::contract::{Constraints, Field, TypeRef, UnmodelledKind};
+use crate::contract::{Constraints, Field, Span, TypeRef, UnmodelledKind};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TypeDirection {
@@ -85,20 +85,76 @@ pub enum TypeIssue {
     },
 }
 
+/// An issue and the place it is about.
+///
+/// The span is the nearest enclosing field's, where the ingester supplied one.
+/// Without it a finding about `customer_id` underlines the whole response —
+/// the right file, the wrong line, and the line is what a reader checks first.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Located {
+    pub issue: TypeIssue,
+    pub span: Option<Span>,
+}
+
+/// Collects issues, stamping each with the field currently being compared.
+///
+/// Deliberately shaped like `Vec::push` so the thirty-odd call sites below
+/// read unchanged: what varies is *where* an issue is, not what it says.
+#[derive(Debug, Default)]
+struct Issues {
+    found: Vec<Located>,
+    span: Option<Span>,
+}
+
+impl Issues {
+    fn push(&mut self, issue: TypeIssue) {
+        self.found.push(Located {
+            issue,
+            span: self.span.clone(),
+        });
+    }
+
+    /// Run `body` with `span` as the current location, then restore.
+    fn within<R>(&mut self, span: Option<Span>, body: impl FnOnce(&mut Self) -> R) -> R {
+        // A field with no span of its own keeps its parent's, which is closer
+        // than the payload and never worse.
+        let previous = match span {
+            Some(span) => self.span.replace(span),
+            None => self.span.clone(),
+        };
+        let result = body(self);
+        self.span = previous;
+        result
+    }
+}
+
 pub fn compare_request_type(base: &TypeRef, head: &TypeRef) -> Vec<TypeIssue> {
-    compare(base, head, TypeDirection::Request)
+    compare_kinds(base, head, TypeDirection::Request)
 }
 
 pub fn compare_response_type(base: &TypeRef, head: &TypeRef) -> Vec<TypeIssue> {
-    compare(base, head, TypeDirection::Response)
+    compare_kinds(base, head, TypeDirection::Response)
 }
 
-pub fn compare(base: &TypeRef, head: &TypeRef, direction: TypeDirection) -> Vec<TypeIssue> {
-    let mut issues = Vec::new();
+/// Compare two types, reporting where each issue is.
+#[must_use]
+pub fn compare(base: &TypeRef, head: &TypeRef, direction: TypeDirection) -> Vec<Located> {
+    let mut issues = Issues::default();
     compare_inner(base, head, direction, "", &mut issues);
-    issues.sort();
-    issues.dedup();
-    issues
+
+    let mut found = issues.found;
+    found.sort_by(|a, b| a.issue.cmp(&b.issue).then_with(|| a.span.cmp(&b.span)));
+    found.dedup();
+    found
+}
+
+/// The issues alone, for a caller that does not need locations.
+#[must_use]
+pub fn compare_kinds(base: &TypeRef, head: &TypeRef, direction: TypeDirection) -> Vec<TypeIssue> {
+    compare(base, head, direction)
+        .into_iter()
+        .map(|located| located.issue)
+        .collect()
 }
 
 fn compare_inner(
@@ -106,7 +162,7 @@ fn compare_inner(
     head: &TypeRef,
     direction: TypeDirection,
     pointer: &str,
-    issues: &mut Vec<TypeIssue>,
+    issues: &mut Issues,
 ) {
     if normalized(base) == normalized(head) {
         // Identical after normalisation, but an `Unknown` on both sides is
@@ -291,7 +347,7 @@ fn compare_object_fields(
     pointer: &str,
     base_fields: &BTreeMap<String, Field>,
     head_fields: &BTreeMap<String, Field>,
-    issues: &mut Vec<TypeIssue>,
+    issues: &mut Issues,
 ) {
     // Where the format has wire numbers, the number is the field's identity:
     // a rename with a stable number is wire-compatible and a renumber with a
@@ -310,35 +366,38 @@ fn compare_object_fields(
                 base_field,
                 head_field,
             } => {
-                let field_pointer = field_pointer(pointer, &name);
-                if direction == TypeDirection::Request
-                    && !base_field.required
-                    && head_field.required
-                {
-                    issues.push(TypeIssue::RequestTypeNarrowed {
-                        pointer: field_pointer.clone(),
-                        reason: format!("field `{name}` became required"),
-                    });
-                }
-                if direction == TypeDirection::Response
-                    && base_field.required
-                    && !head_field.required
-                {
-                    issues.push(TypeIssue::ResponseFieldOptional {
-                        pointer: field_pointer.clone(),
-                        field: name.clone(),
-                    });
-                }
-                compare_inner(
-                    &base_field.ty,
-                    &head_field.ty,
-                    direction,
-                    &field_pointer,
-                    issues,
-                );
+                let field_pointer = field_pointer(pointer, name);
+                issues.within(head_field.span.clone(), |issues| {
+                    if direction == TypeDirection::Request
+                        && !base_field.required
+                        && head_field.required
+                    {
+                        issues.push(TypeIssue::RequestTypeNarrowed {
+                            pointer: field_pointer.clone(),
+                            reason: format!("field `{name}` became required"),
+                        });
+                    }
+                    if direction == TypeDirection::Response
+                        && base_field.required
+                        && !head_field.required
+                    {
+                        issues.push(TypeIssue::ResponseFieldOptional {
+                            pointer: field_pointer.clone(),
+                            field: name.to_owned(),
+                        });
+                    }
+                    compare_inner(
+                        &base_field.ty,
+                        &head_field.ty,
+                        direction,
+                        &field_pointer,
+                        issues,
+                    );
+                });
             }
-            Pairing::BaseOnly { name, .. } => {
-                let field_pointer = field_pointer(pointer, &name);
+            Pairing::BaseOnly { name, base_field } => {
+                let field_pointer = field_pointer(pointer, name);
+                issues.span = base_field.span.clone();
                 match direction {
                     TypeDirection::Request => issues.push(TypeIssue::RequestTypeNarrowed {
                         pointer: field_pointer,
@@ -348,52 +407,58 @@ fn compare_object_fields(
                     }),
                     TypeDirection::Response => issues.push(TypeIssue::ResponseFieldRemoved {
                         pointer: field_pointer,
-                        field: name,
+                        field: name.to_owned(),
                     }),
                 }
+                issues.span = None;
             }
             Pairing::HeadOnly { name, head_field } => {
-                let field_pointer = field_pointer(pointer, &name);
+                let field_pointer = field_pointer(pointer, name);
+                issues.span = head_field.span.clone();
                 match (direction, head_field.required) {
                     (TypeDirection::Request, true) => {
                         issues.push(TypeIssue::RequestFieldAddedRequired {
                             pointer: field_pointer.clone(),
-                            field: name,
+                            field: name.to_owned(),
                         });
                     }
                     (TypeDirection::Request, false) => {
                         issues.push(TypeIssue::RequestFieldAddedOptional {
                             pointer: field_pointer.clone(),
-                            field: name,
+                            field: name.to_owned(),
                         });
                     }
                     (TypeDirection::Response, _) => {
                         issues.push(TypeIssue::ResponseFieldAdded {
                             pointer: field_pointer.clone(),
-                            field: name,
+                            field: name.to_owned(),
                         });
                     }
                 }
                 collect_partials(&head_field.ty, &field_pointer, issues);
+                issues.span = None;
             }
         }
     }
 }
 
-enum Pairing {
+/// How a field on one side lines up with the other.
+///
+/// Borrows rather than clones: a `Field` carries its span and its whole type,
+/// and the pairs are consumed in the loop that builds them.
+enum Pairing<'a> {
     Both {
-        name: String,
-        base_field: Field,
-        head_field: Field,
+        name: &'a str,
+        base_field: &'a Field,
+        head_field: &'a Field,
     },
     BaseOnly {
-        name: String,
-        #[allow(dead_code)]
-        base_field: Field,
+        name: &'a str,
+        base_field: &'a Field,
     },
     HeadOnly {
-        name: String,
-        head_field: Field,
+        name: &'a str,
+        head_field: &'a Field,
     },
 }
 
@@ -401,46 +466,40 @@ fn uses_wire_numbers(fields: &BTreeMap<String, Field>) -> bool {
     !fields.is_empty() && fields.values().all(|field| field.number.is_some())
 }
 
-fn pair_by_name(
-    base_fields: &BTreeMap<String, Field>,
-    head_fields: &BTreeMap<String, Field>,
-) -> Vec<Pairing> {
+fn pair_by_name<'a>(
+    base_fields: &'a BTreeMap<String, Field>,
+    head_fields: &'a BTreeMap<String, Field>,
+) -> Vec<Pairing<'a>> {
     let mut pairs = Vec::new();
     for (name, base_field) in base_fields {
         match head_fields.get(name) {
             Some(head_field) => pairs.push(Pairing::Both {
-                name: name.clone(),
-                base_field: base_field.clone(),
-                head_field: head_field.clone(),
+                name,
+                base_field,
+                head_field,
             }),
-            None => pairs.push(Pairing::BaseOnly {
-                name: name.clone(),
-                base_field: base_field.clone(),
-            }),
+            None => pairs.push(Pairing::BaseOnly { name, base_field }),
         }
     }
     for (name, head_field) in head_fields {
         if !base_fields.contains_key(name) {
-            pairs.push(Pairing::HeadOnly {
-                name: name.clone(),
-                head_field: head_field.clone(),
-            });
+            pairs.push(Pairing::HeadOnly { name, head_field });
         }
     }
     pairs
 }
 
-fn pair_by_number(
-    base_fields: &BTreeMap<String, Field>,
-    head_fields: &BTreeMap<String, Field>,
+fn pair_by_number<'a>(
+    base_fields: &'a BTreeMap<String, Field>,
+    head_fields: &'a BTreeMap<String, Field>,
     pointer: &str,
-    issues: &mut Vec<TypeIssue>,
-) -> Vec<Pairing> {
-    let by_number = |fields: &BTreeMap<String, Field>| {
+    issues: &mut Issues,
+) -> Vec<Pairing<'a>> {
+    let by_number = |fields: &'a BTreeMap<String, Field>| {
         fields
             .iter()
-            .filter_map(|(name, field)| field.number.map(|n| (n, (name.clone(), field.clone()))))
-            .collect::<BTreeMap<i32, (String, Field)>>()
+            .filter_map(|(name, field)| field.number.map(|n| (n, (name.as_str(), field))))
+            .collect::<BTreeMap<i32, (&'a str, &'a Field)>>()
     };
     let base_by_number = by_number(base_fields);
     let head_by_number = by_number(head_fields);
@@ -456,11 +515,13 @@ fn pair_by_number(
         if let Some(head_number) = head_field.number
             && head_number != base_number
         {
-            issues.push(TypeIssue::FieldNumberChanged {
-                pointer: field_pointer(pointer, base_name),
-                field: base_name.clone(),
-                from: base_number,
-                to: head_number,
+            issues.within(head_field.span.clone(), |issues| {
+                issues.push(TypeIssue::FieldNumberChanged {
+                    pointer: field_pointer(pointer, base_name),
+                    field: base_name.clone(),
+                    from: base_number,
+                    to: head_number,
+                });
             });
         }
     }
@@ -470,29 +531,31 @@ fn pair_by_number(
         match head_by_number.get(number) {
             Some((head_name, head_field)) => {
                 if head_name != base_name {
-                    issues.push(TypeIssue::FieldRenamed {
-                        pointer: field_pointer(pointer, base_name),
-                        from: base_name.clone(),
-                        to: head_name.clone(),
+                    issues.within(head_field.span.clone(), |issues| {
+                        issues.push(TypeIssue::FieldRenamed {
+                            pointer: field_pointer(pointer, base_name),
+                            from: (*base_name).to_owned(),
+                            to: (*head_name).to_owned(),
+                        });
                     });
                 }
                 pairs.push(Pairing::Both {
-                    name: base_name.clone(),
-                    base_field: base_field.clone(),
-                    head_field: head_field.clone(),
+                    name: base_name,
+                    base_field,
+                    head_field,
                 });
             }
             None => pairs.push(Pairing::BaseOnly {
-                name: base_name.clone(),
-                base_field: base_field.clone(),
+                name: base_name,
+                base_field,
             }),
         }
     }
     for (number, (head_name, head_field)) in &head_by_number {
         if !base_by_number.contains_key(number) {
             pairs.push(Pairing::HeadOnly {
-                name: head_name.clone(),
-                head_field: head_field.clone(),
+                name: head_name,
+                head_field,
             });
         }
     }
@@ -504,7 +567,7 @@ fn compare_enum(
     pointer: &str,
     base_values: &BTreeSet<String>,
     head_values: &BTreeSet<String>,
-    issues: &mut Vec<TypeIssue>,
+    issues: &mut Issues,
 ) {
     let removed = base_values.difference(head_values).count();
     let added = head_values.difference(base_values).count();
@@ -553,7 +616,7 @@ fn compare_enum_numbers(
     pointer: &str,
     base_numbers: &BTreeMap<String, i32>,
     head_numbers: &BTreeMap<String, i32>,
-    issues: &mut Vec<TypeIssue>,
+    issues: &mut Issues,
 ) {
     if base_numbers.is_empty() || head_numbers.is_empty() {
         return;
@@ -596,7 +659,7 @@ fn compare_scalar_format(
     pointer: &str,
     base_format: Option<&str>,
     head_format: Option<&str>,
-    issues: &mut Vec<TypeIssue>,
+    issues: &mut Issues,
 ) {
     if base_format == head_format {
         return;
@@ -629,7 +692,7 @@ fn compare_nullable(
     pointer: &str,
     base_nullable: bool,
     head_nullable: bool,
-    issues: &mut Vec<TypeIssue>,
+    issues: &mut Issues,
 ) {
     match (direction, base_nullable, head_nullable) {
         // Refusing a null that used to be accepted breaks a caller sending it.
@@ -654,7 +717,7 @@ fn compare_constraints(
     pointer: &str,
     base: &Constraints,
     head: &Constraints,
-    issues: &mut Vec<TypeIssue>,
+    issues: &mut Issues,
 ) {
     if base == head {
         return;
@@ -767,7 +830,7 @@ fn describe_bound(bound: Option<u64>) -> String {
 /// Walk a type that is not being structurally compared and report anything on
 /// it that could not be modelled. Without this, an `Unknown` nested inside a
 /// type that is equal on both sides would read as verified.
-fn collect_partials(ty: &TypeRef, pointer: &str, issues: &mut Vec<TypeIssue>) {
+fn collect_partials(ty: &TypeRef, pointer: &str, issues: &mut Issues) {
     match ty {
         TypeRef::Unknown(kind) => issues.push(TypeIssue::Partial {
             pointer: pointer.to_owned(),
@@ -790,12 +853,7 @@ fn collect_partials(ty: &TypeRef, pointer: &str, issues: &mut Vec<TypeIssue>) {
     }
 }
 
-fn push_changed(
-    direction: TypeDirection,
-    pointer: &str,
-    reason: String,
-    issues: &mut Vec<TypeIssue>,
-) {
+fn push_changed(direction: TypeDirection, pointer: &str, reason: String, issues: &mut Issues) {
     match direction {
         TypeDirection::Request => issues.push(TypeIssue::RequestTypeNarrowed {
             pointer: pointer.to_owned(),
@@ -857,6 +915,7 @@ fn normalized(ty: &TypeRef) -> TypeRef {
                             required: field.required,
                             deprecated: field.deprecated,
                             number: field.number,
+                            span: field.span.clone(),
                         },
                     )
                 })
@@ -922,9 +981,9 @@ fn variant_set(variants: &[TypeRef]) -> BTreeSet<String> {
 /// Does this type carry anything the ingester could not model?
 #[must_use]
 pub fn has_unmodelled(ty: &TypeRef) -> bool {
-    let mut issues = Vec::new();
+    let mut issues = Issues::default();
     collect_partials(ty, "", &mut issues);
-    !issues.is_empty()
+    !issues.found.is_empty()
 }
 
 /// The kinds present on a type, for reporting without a comparison.
@@ -989,6 +1048,7 @@ mod tests {
                             required: false,
                             deprecated: false,
                             number: Some(number),
+                            span: None,
                         },
                     )
                 })

@@ -339,7 +339,32 @@ struct RawSuppression {
     endpoint: Option<String>,
     field: Option<String>,
     reason: String,
-    expires: Option<String>,
+    expires: Option<Expires>,
+}
+
+/// `expires`, however it was written.
+///
+/// TOML has a native date type, so `expires = 2026-09-01` without quotes is
+/// the natural thing to write — and deserialising straight into `String`
+/// rejected it with serde's `invalid type: map, expected a string`, which
+/// tells a reader nothing about what to do. Both spellings are accepted and
+/// normalised, because the tool knows perfectly well what was meant.
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+enum Expires {
+    Text(String),
+    Date(toml::value::Datetime),
+}
+
+impl std::fmt::Display for Expires {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Text(text) => formatter.write_str(text),
+            // `Datetime`'s own rendering is the TOML spelling, which for a
+            // local date is already YYYY-MM-DD.
+            Self::Date(date) => write!(formatter, "{date}"),
+        }
+    }
 }
 
 impl RawSuppression {
@@ -358,7 +383,8 @@ impl RawSuppression {
 
         // An unreadable date silently never expires, which turns a
         // time-boxed exception into a permanent one.
-        if let Some(expires) = &self.expires
+        let expires = self.expires.map(|expires| expires.to_string());
+        if let Some(expires) = &expires
             && crate::rules::parse_date(expires).is_none()
         {
             return Err(ConfigError::Validation(format!(
@@ -380,7 +406,7 @@ impl RawSuppression {
             endpoint: self.endpoint,
             field: self.field,
             reason: self.reason,
-            expires: self.expires,
+            expires,
         })
     }
 }
@@ -388,6 +414,41 @@ impl RawSuppression {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn expires_accepts_both_spellings_of_a_date() {
+        // TOML has a native date type, so writing one unquoted is the natural
+        // thing to do. Rejecting it with serde's `invalid type: map, expected
+        // a string` told a reader nothing about what to do instead.
+        let with = |expires: &str| {
+            format!(
+                "[[contract]]\nname=\"c\"\nformat=\"openapi\"\nsource=\"a.yaml\"\n\
+                 [[contract.allow]]\nrule=\"endpoint-removed\"\nreason=\"r\"\n\
+                 expires={expires}\n"
+            )
+        };
+
+        for spelling in ["\"2026-09-01\"", "2026-09-01"] {
+            let config = Config::parse(&with(spelling))
+                .unwrap_or_else(|error| panic!("`expires={spelling}` should parse: {error}"));
+            assert_eq!(
+                config.contracts[0].allow[0].expires.as_deref(),
+                Some("2026-09-01"),
+                "both spellings must normalise to the same date"
+            );
+        }
+    }
+
+    #[test]
+    fn expires_still_rejects_something_that_is_not_a_date() {
+        let config = Config::parse(
+            "[[contract]]\nname=\"c\"\nformat=\"openapi\"\nsource=\"a.yaml\"\n\
+             [[contract.allow]]\nrule=\"endpoint-removed\"\nreason=\"r\"\n\
+             expires=\"soon\"\n",
+        );
+        let error = config.expect_err("`soon` is not a date").to_string();
+        assert!(error.contains("YYYY-MM-DD"), "{error}");
+    }
 
     #[test]
     fn parses_defaults_contract_and_suppression() {

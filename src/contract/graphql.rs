@@ -73,18 +73,28 @@ pub fn ingest(source: &str, bytes: &[u8]) -> Result<Contract, GraphqlError> {
                 if let Some(name) = extract_name(node.name()) {
                     registry
                         .inputs
-                        .entry(name)
+                        .entry(name.clone())
                         .or_default()
-                        .extend(input_fields(node.input_fields_definition()));
+                        .extend(input_fields(
+                            node.input_fields_definition(),
+                            &lines,
+                            source,
+                            &name,
+                        ));
                 }
             }
             cst::Definition::InputObjectTypeExtension(node) => {
                 if let Some(name) = extract_name(node.name()) {
                     registry
                         .inputs
-                        .entry(name)
+                        .entry(name.clone())
                         .or_default()
-                        .extend(input_fields(node.input_fields_definition()));
+                        .extend(input_fields(
+                            node.input_fields_definition(),
+                            &lines,
+                            source,
+                            &name,
+                        ));
                 }
             }
             cst::Definition::ObjectTypeDefinition(node) => {
@@ -417,6 +427,9 @@ fn named_type(
                                 required: true,
                                 deprecated: false,
                                 number: None,
+                                // Synthetic: the discriminant is not written
+                                // anywhere in the schema.
+                                span: None,
                             },
                         );
                         TypeRef::Object {
@@ -452,6 +465,7 @@ fn named_type(
                         ty: build_type(&field.ty, registry, visiting, pointer, span),
                         deprecated: field.deprecated,
                         number: None,
+                        span: Some(field.span.clone()),
                     },
                 );
             }
@@ -538,17 +552,24 @@ fn union_members(members: Option<cst::UnionMemberTypes>) -> Vec<String> {
         .collect()
 }
 
-fn input_fields(definition: Option<cst::InputFieldsDefinition>) -> Vec<FieldShape> {
+fn input_fields(
+    definition: Option<cst::InputFieldsDefinition>,
+    lines: &LineIndex,
+    source: &str,
+    owner: &str,
+) -> Vec<FieldShape> {
     definition
         .into_iter()
         .flat_map(|fields| fields.input_value_definitions())
         .filter_map(|value| {
+            let name = extract_name(value.name())?;
+            let offset: usize = value.syntax().text_range().start().into();
             Some(FieldShape {
-                name: extract_name(value.name())?,
                 ty: convert_type(value.ty()?)?,
                 args: Vec::new(),
                 deprecated: has_deprecated_directive(value.directives()),
-                span: Span::new("", 1, 1, ""),
+                span: lines.span(source, offset, &format!("/{owner}/{name}")),
+                name,
             })
         })
         .collect()

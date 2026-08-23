@@ -252,6 +252,13 @@ pub struct Field {
     /// renumbered with a stable name is a hard break. Formats without wire
     /// numbers leave this `None` and are compared by name.
     pub number: Option<i32>,
+    /// Where the field is declared.
+    ///
+    /// Without it a finding about `customer_id` underlines the enclosing
+    /// response, which is the right file and the wrong line — and the line is
+    /// what a reader looks at first. `None` where an ingester cannot supply
+    /// one, in which case the payload's span is used as before.
+    pub span: Option<Span>,
 }
 
 impl Field {
@@ -262,6 +269,16 @@ impl Field {
             required,
             deprecated: false,
             number: None,
+            span: None,
+        }
+    }
+
+    /// The same, declared at a known location.
+    #[must_use]
+    pub fn at(ty: TypeRef, required: bool, span: Span) -> Self {
+        Self {
+            span: Some(span),
+            ..Self::new(ty, required)
         }
     }
 }

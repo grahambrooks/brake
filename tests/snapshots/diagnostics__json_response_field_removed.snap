@@ -6,11 +6,11 @@ expression: "serde_json::to_string_pretty(&value).expect(\"pretty\")"
   "contracts_checked": 1,
   "findings": [
     {
-      "column": 11,
+      "column": 19,
       "contract": "payments",
       "file": "api/openapi.yaml",
       "help_uri": "https://github.com/grahambrooks/brake/blob/main/docs/rules.md#response-enum-extended",
-      "line": 11,
+      "line": 20,
       "message": "response enum extended: response `200` at `/status` in `GET /payments/{id}`",
       "method": "GET",
       "path": "/payments/{id}",
@@ -32,11 +32,11 @@ expression: "serde_json::to_string_pretty(&value).expect(\"pretty\")"
       "subject": "status"
     },
     {
-      "column": 11,
+      "column": 19,
       "contract": "payments",
       "file": "api/openapi.baseline.yaml",
       "help_uri": "https://github.com/grahambrooks/brake/blob/main/docs/rules.md#response-field-removed",
-      "line": 11,
+      "line": 20,
       "message": "response field removed: response `200` at `/customer_id`: field `customer_id` in `GET /payments/{id}`",
       "method": "GET",
       "path": "/payments/{id}",

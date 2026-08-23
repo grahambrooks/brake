@@ -593,18 +593,23 @@ fn scheme_difference(base: &SecurityScheme, head: &SecurityScheme) -> Option<Str
 /// being described: a removed field only exists in the baseline, so pointing at
 /// the head would send a reader to a line that does not mention it.
 fn emit_issue(
-    issue: TypeIssue,
+    located: types::Located,
     base_span: &Span,
     head_span: &Span,
     context: &str,
     push: &mut Push<'_>,
 ) {
+    let types::Located { issue, span: field } = located;
     let removal = matches!(
         issue,
         TypeIssue::ResponseFieldRemoved { .. } | TypeIssue::RequestVariantRemoved { .. }
     );
-    let span = if removal { base_span } else { head_span };
-    let full = |pointer: &str| format!("{}{pointer}", span.pointer);
+    let payload_span = if removal { base_span } else { head_span };
+    // The field's own line where an ingester supplied one, and the enclosing
+    // payload's otherwise. The pointer is exact either way; this is about
+    // which line a reader is shown.
+    let span = field.as_ref().unwrap_or(payload_span);
+    let full = |pointer: &str| format!("{}{pointer}", payload_span.pointer);
     let at = |pointer: &str| {
         if pointer.is_empty() {
             context.to_owned()

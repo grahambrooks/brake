@@ -3,10 +3,10 @@ source: tests/diagnostics.rs
 expression: "text::render(&report)"
 ---
 warning[response-enum-extended]: response enum extended: response `200` at `/status` in `GET /payments/{id}`
-  --> api/openapi.yaml:11:11
+  --> api/openapi.yaml:20:19
    |
-11 |           description: The payment.
-   |           ^^^^^^^^^^^ here
+20 |                   status:
+   |                   ^^^^^^ here
    |
    = note: contract: `payments`
 help: two ways to make this change safely
@@ -19,10 +19,10 @@ help: two ways to make this change safely
       run `brake explain response-enum-extended` for why this breaks
 
 error[response-field-removed]: response field removed: response `200` at `/customer_id`: field `customer_id` in `GET /payments/{id}`
-  --> api/openapi.baseline.yaml:11:11
+  --> api/openapi.baseline.yaml:20:19
    |
-11 |           description: The payment.
-   |           ^^^^^^^^^^^ here
+20 |                   customer_id:
+   |                   ^^^^^^^^^^^ here
    |
    = note: contract: `payments`
 help: three ways to make this change safely

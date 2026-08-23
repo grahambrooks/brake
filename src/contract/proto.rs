@@ -274,6 +274,11 @@ impl Registry {
                     // and message-typed fields express, and neither makes a
                     // field mandatory on the wire.
                     required: field.label == Some(LABEL_REQUIRED),
+                    // Field-level `source_code_info` paths need the enclosing
+                    // message's index threaded through the registry. Not done:
+                    // a proto finding falls back to the method's span, which
+                    // is the current behaviour and still the right file.
+                    span: None,
                     deprecated: field
                         .options
                         .as_ref()
