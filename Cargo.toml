@@ -70,7 +70,7 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tempfile = "3"
 thiserror = "2"
-toml = "0.9"
+toml = "1.1"
 annotate-snippets = { version = "0.12.16", optional = true }
 rmcp = { version = "3.1.4", default-features = false, features = ["server", "transport-io", "macros"], optional = true }
 tokio = { version = "1.53.1", default-features = false, features = ["rt-multi-thread", "macros", "io-std", "sync"], optional = true }
