@@ -52,7 +52,7 @@ cli = ["dep:clap"]
 # discards them.
 [dependencies]
 clap = { version = "4", features = ["derive"], optional = true }
-gix = "0.86.0"
+gix = "0.87.0"
 apollo-parser = "0.9.0-beta.0"
 prost-types = "0.14"
 protox-parse = "0.9.0"
