@@ -13,7 +13,14 @@ SHELL := /usr/bin/env bash
 
 YEAR    := $(shell date -u +%Y)
 MONTH   := $(shell date -u +%-m)
-MICRO    = $(shell git tag -l 'v$(YEAR).$(MONTH).*' | wc -l | tr -d ' ')
+# One past the highest MICRO already tagged this month, not the *number* of
+# tags. Counting assumes no tag is ever deleted or skipped: delete one and the
+# next release silently reuses a version that is already on crates.io, where
+# the only thing standing between that and a bad publish is release-guard
+# failing with a message about a tag that exists for reasons nobody remembers.
+MICRO    = $(shell last=$$(git tag -l 'v$(YEAR).$(MONTH).*' \
+             | sed -n 's/^v[0-9][0-9]*\.[0-9][0-9]*\.\([0-9][0-9]*\)$$/\1/p' \
+             | sort -n | tail -1); echo $$(( $${last:--1} + 1 )))
 VERSION  = $(YEAR).$(MONTH).$(MICRO)
 TAG      = v$(VERSION)
 

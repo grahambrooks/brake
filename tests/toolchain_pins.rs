@@ -91,3 +91,44 @@ fn the_msrv_job_pins_a_version_rather_than_stable() {
         "the minimum-supported-version job must pin a version"
     );
 }
+
+/// The next release version must never be one already released.
+///
+/// `MICRO` used to be the *count* of this month's tags, which assumes none is
+/// ever deleted or skipped. Deleting `v2026.8.2` — a tag whose release failed
+/// and published nothing — made `make version` report `2026.8.3`, a version
+/// already on crates.io. The only thing between that and a bad publish was
+/// `release-guard` refusing with a message about a tag existing for reasons
+/// nobody would remember.
+#[test]
+fn the_next_version_is_not_one_that_is_already_tagged() {
+    let next = std::process::Command::new("make")
+        .arg("version")
+        .current_dir(env!("CARGO_MANIFEST_DIR"))
+        .output();
+
+    let Ok(output) = next else {
+        return; // `make` unavailable; nothing to assert.
+    };
+    if !output.status.success() {
+        return;
+    }
+    let next = String::from_utf8_lossy(&output.stdout).trim().to_owned();
+    assert!(!next.is_empty(), "`make version` printed nothing");
+
+    let tags = std::process::Command::new("git")
+        .args(["tag", "-l"])
+        .current_dir(env!("CARGO_MANIFEST_DIR"))
+        .output()
+        .expect("git tag -l");
+    let tags: Vec<String> = String::from_utf8_lossy(&tags.stdout)
+        .lines()
+        .map(str::to_owned)
+        .collect();
+
+    assert!(
+        !tags.contains(&format!("v{next}")),
+        "`make version` says {next}, which is already tagged — a release would \
+         either be refused or, worse, reuse a published version"
+    );
+}
