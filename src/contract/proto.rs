@@ -8,9 +8,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use prost_types::{
-    DescriptorProto, EnumDescriptorProto, FieldDescriptorProto, FileDescriptorProto, SourceCodeInfo,
-};
+use prost_types::{DescriptorProto, EnumDescriptorProto, FieldDescriptorProto, SourceCodeInfo};
 use thiserror::Error;
 
 use super::{
@@ -24,8 +22,6 @@ const LABEL_REQUIRED: i32 = 2;
 const LABEL_REPEATED: i32 = 3;
 
 /// `FileDescriptorProto` field numbers, for `source_code_info` paths.
-const PATH_MESSAGE_TYPE: i32 = 4;
-const PATH_ENUM_TYPE: i32 = 5;
 const PATH_SERVICE: i32 = 6;
 const PATH_SERVICE_METHOD: i32 = 2;
 
@@ -435,15 +431,6 @@ fn qualify(parent: &str, name: &str) -> String {
         format!("{parent}.{name}")
     }
 }
-
-/// Unused, but kept referenced so the descriptor import stays meaningful.
-#[allow(dead_code)]
-fn descriptor_kinds(descriptor: &FileDescriptorProto) -> (usize, usize) {
-    (descriptor.message_type.len(), descriptor.enum_type.len())
-}
-
-#[allow(dead_code)]
-const PATH_KINDS: [i32; 2] = [PATH_MESSAGE_TYPE, PATH_ENUM_TYPE];
 
 #[cfg(test)]
 mod tests {

@@ -89,7 +89,6 @@ pub fn ingest(source: &str, bytes: &[u8]) -> Result<Contract, GraphqlError> {
             }
             cst::Definition::ObjectTypeDefinition(node) => {
                 if let Some(name) = extract_name(node.name()) {
-                    let span = lines.span(source, node.syntax().text_range().start().into(), &name);
                     registry
                         .objects
                         .entry(name.clone())
@@ -100,7 +99,6 @@ pub fn ingest(source: &str, bytes: &[u8]) -> Result<Contract, GraphqlError> {
                             source,
                             &name,
                         ));
-                    registry.spans.entry(name).or_insert(span);
                 }
             }
             cst::Definition::ObjectTypeExtension(node) => {
@@ -132,7 +130,6 @@ pub fn ingest(source: &str, bytes: &[u8]) -> Result<Contract, GraphqlError> {
                             source,
                             &name,
                         ));
-                    registry.interfaces.insert(name);
                 }
             }
             cst::Definition::InterfaceTypeExtension(node) => {
@@ -147,7 +144,6 @@ pub fn ingest(source: &str, bytes: &[u8]) -> Result<Contract, GraphqlError> {
                             source,
                             &name,
                         ));
-                    registry.interfaces.insert(name);
                 }
             }
             cst::Definition::UnionTypeDefinition(node) => {
@@ -260,9 +256,7 @@ struct Registry {
     objects: BTreeMap<String, Vec<FieldShape>>,
     enums: BTreeMap<String, BTreeSet<String>>,
     unions: BTreeMap<String, Vec<String>>,
-    interfaces: BTreeSet<String>,
     custom_scalars: BTreeSet<String>,
-    spans: BTreeMap<String, Span>,
     unmodelled: Vec<Unmodelled>,
 }
 

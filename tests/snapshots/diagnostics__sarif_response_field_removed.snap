@@ -1,0 +1,110 @@
+---
+source: tests/diagnostics.rs
+expression: "serde_json::to_string_pretty(&value).expect(\"pretty\")"
+---
+{
+  "$schema": "https://json.schemastore.org/sarif-2.1.0.json",
+  "runs": [
+    {
+      "results": [
+        {
+          "level": "warning",
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "api/openapi.yaml"
+                },
+                "region": {
+                  "startColumn": 11,
+                  "startLine": 11
+                }
+              }
+            }
+          ],
+          "message": {
+            "text": "response enum extended: response `200` at `/status` in `GET /payments/{id}`"
+          },
+          "partialFingerprints": {
+            "brakeFindingV1": "2542b3af8e742365"
+          },
+          "properties": {
+            "contract": "payments"
+          },
+          "ruleId": "response-enum-extended"
+        },
+        {
+          "level": "error",
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "api/openapi.baseline.yaml"
+                },
+                "region": {
+                  "startColumn": 11,
+                  "startLine": 11
+                }
+              }
+            }
+          ],
+          "message": {
+            "text": "response field removed: response `200` at `/customer_id`: field `customer_id` in `GET /payments/{id}`"
+          },
+          "partialFingerprints": {
+            "brakeFindingV1": "e10afd515334b9b1"
+          },
+          "properties": {
+            "contract": "payments"
+          },
+          "ruleId": "response-field-removed"
+        }
+      ],
+      "tool": {
+        "driver": {
+          "informationUri": "https://github.com/grahambrooks/brake",
+          "name": "brake",
+          "rules": [
+            {
+              "defaultConfiguration": {
+                "level": "warning"
+              },
+              "fullDescription": {
+                "text": "A tolerant reader copes. A generated Rust or TypeScript client matching exhaustively on the enum does not — it panics, throws, or fails to compile on upgrade. `graphql-inspector` calls this DANGEROUS rather than breaking for the same reason, and it is a warning here so that teams generating exhaustive clients can raise it deliberately."
+              },
+              "help": {
+                "text": "A tolerant reader copes. A generated Rust or TypeScript client matching exhaustively on the enum does not — it panics, throws, or fails to compile on upgrade. `graphql-inspector` calls this DANGEROUS rather than breaking for the same reason, and it is a warning here so that teams generating exhaustive clients can raise it deliberately."
+              },
+              "helpUri": "https://github.com/grahambrooks/brake/blob/main/docs/rules.md#response-enum-extended",
+              "id": "response-enum-extended",
+              "name": "response-enum-extended",
+              "shortDescription": {
+                "text": "A response enum gained a value."
+              }
+            },
+            {
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "fullDescription": {
+                "text": "Any consumer reading that field now gets nothing, and a consumer deserialising into a type with a non-optional field for it fails outright. Deprecate the field for a release before removing it — that is the sanctioned path, and a team that follows it never needs a suppression."
+              },
+              "help": {
+                "text": "Any consumer reading that field now gets nothing, and a consumer deserialising into a type with a non-optional field for it fails outright. Deprecate the field for a release before removing it — that is the sanctioned path, and a team that follows it never needs a suppression."
+              },
+              "helpUri": "https://github.com/grahambrooks/brake/blob/main/docs/rules.md#response-field-removed",
+              "id": "response-field-removed",
+              "name": "response-field-removed",
+              "shortDescription": {
+                "text": "A field present in a baseline response is gone."
+              }
+            }
+          ],
+          "semanticVersion": "2026.8.0",
+          "version": "2026.8.0"
+        }
+      }
+    }
+  ],
+  "version": "2.1.0"
+}

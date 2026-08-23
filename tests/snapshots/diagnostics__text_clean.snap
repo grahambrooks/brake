@@ -1,0 +1,5 @@
+---
+source: tests/diagnostics.rs
+expression: "text::render(&report)"
+---
+clean: 1 contract checked, no findings at the selected threshold

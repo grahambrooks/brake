@@ -1,0 +1,36 @@
+# cargo-deny. The point is not ceremony: brake's pitch is that it is safe to
+# run against a repository you do not trust, and that claim is weaker for every
+# dependency nobody has looked at.
+
+[advisories]
+yanked = "deny"
+
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+
+[licenses]
+# Permissive only. A copyleft dependency would change the licensing position of
+# every consumer, including forge.
+allow = [
+  "MIT",
+  "Apache-2.0",
+  "Apache-2.0 WITH LLVM-exception",
+  "BSD-2-Clause",
+  "BSD-3-Clause",
+  "ISC",
+  "Unicode-3.0",
+  "Zlib",
+  "CC0-1.0",
+  # `uluru`, an LRU cache reached through gix. MPL-2.0 is file-level copyleft:
+  # it obliges anyone modifying uluru's own files to publish those changes, and
+  # says nothing about brake or about a consumer linking brake. Listed
+  # deliberately rather than by accident.
+  "MPL-2.0",
+]
+confidence-threshold = 0.9
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]

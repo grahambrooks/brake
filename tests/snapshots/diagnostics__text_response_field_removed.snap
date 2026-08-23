@@ -1,0 +1,25 @@
+---
+source: tests/diagnostics.rs
+expression: "text::render(&report)"
+---
+warning[response-enum-extended]: response enum extended: response `200` at `/status` in `GET /payments/{id}`
+  --> api/openapi.yaml:11:11
+   |
+11 |           description: The payment.
+   |           ^^^^^^^^^^^ here
+   |
+   = note: contract: `payments`
+help: A tolerant reader copes. A generated Rust or TypeScript client matching exhaustively on the enum does not — it panics, throws, or fails to compile on upgrade. `graphql-inspector` calls this DANGEROUS rather than breaking for the same reason, and it is a warning here so that teams generating exhaustive clients can raise it deliberately.
+      
+      run `brake explain response-enum-extended` for the full rationale
+
+error[response-field-removed]: response field removed: response `200` at `/customer_id`: field `customer_id` in `GET /payments/{id}`
+  --> api/openapi.baseline.yaml:11:11
+   |
+11 |           description: The payment.
+   |           ^^^^^^^^^^^ here
+   |
+   = note: contract: `payments`
+help: Any consumer reading that field now gets nothing, and a consumer deserialising into a type with a non-optional field for it fails outright. Deprecate the field for a release before removing it — that is the sanctioned path, and a team that follows it never needs a suppression.
+      
+      run `brake explain response-field-removed` for the full rationale

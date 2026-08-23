@@ -56,3 +56,39 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - run: make eval-tests
+
+  # brake, applied to itself. The repository carries a fixture contract, so the
+  # tool gates its own API surface the way it asks consumers to gate theirs.
+  self-check:
+    name: brake checks itself
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # A merge-base baseline needs history; a shallow clone has none.
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: make self-check
+
+  # A tool whose pitch is trust posture should know what it depends on.
+  supply-chain:
+    name: advisories and licences
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          command: check advisories bans licenses sources
+
+  # docs/rules.md is generated; a stale copy sends anyone following a SARIF
+  # helpUri to a page that does not describe the rule that fired.
+  generated-docs:
+    name: generated docs are current
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo test --all-features --test docs_match_the_catalogue

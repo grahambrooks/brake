@@ -1,0 +1,36 @@
+---
+source: tests/diagnostics.rs
+expression: "serde_json::to_string_pretty(&value).expect(\"pretty\")"
+---
+{
+  "contracts_checked": 1,
+  "findings": [
+    {
+      "column": 11,
+      "contract": "payments",
+      "file": "api/openapi.yaml",
+      "help_uri": "https://github.com/grahambrooks/brake/blob/main/docs/rules.md#response-enum-extended",
+      "line": 11,
+      "message": "response enum extended: response `200` at `/status` in `GET /payments/{id}`",
+      "method": "GET",
+      "path": "/payments/{id}",
+      "pointer": "/paths/~1payments~1{id}/get/responses/200/status",
+      "rule": "response-enum-extended",
+      "severity": "warning"
+    },
+    {
+      "column": 11,
+      "contract": "payments",
+      "file": "api/openapi.baseline.yaml",
+      "help_uri": "https://github.com/grahambrooks/brake/blob/main/docs/rules.md#response-field-removed",
+      "line": 11,
+      "message": "response field removed: response `200` at `/customer_id`: field `customer_id` in `GET /payments/{id}`",
+      "method": "GET",
+      "path": "/payments/{id}",
+      "pointer": "/paths/~1payments~1{id}/get/responses/200/customer_id",
+      "rule": "response-field-removed",
+      "severity": "error"
+    }
+  ],
+  "unavailable": []
+}

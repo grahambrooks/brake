@@ -1,0 +1,6 @@
+---
+source: tests/diagnostics.rs
+expression: "text::render(&report)"
+---
+error: brake could not check `payments`: failed to read baseline file for contract `payments` at api/absent.baseline.yaml: No such file or directory (os error 2)
+note: this is a tool failure, not an API break — exiting 2

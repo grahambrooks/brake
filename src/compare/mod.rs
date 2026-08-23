@@ -127,12 +127,20 @@ pub fn compare_endpoint_sets(base: &Contract, head: &Contract) -> Vec<Change> {
         });
     }
 
+    // Precomputed rather than scanned per endpoint: a linear scan inside the
+    // loop makes a large specification quadratic for no reason.
+    let head_paths = head
+        .endpoints
+        .keys()
+        .map(|key| key.path.as_str())
+        .collect::<BTreeSet<_>>();
+
     for (base_key, base_endpoint) in &base.endpoints {
         if moved.contains(base_key) || head.endpoints.contains_key(base_key) {
             continue;
         }
 
-        let kind = if head.endpoints.keys().any(|key| key.path == base_key.path) {
+        let kind = if head_paths.contains(base_key.path.as_str()) {
             ChangeKind::MethodRemoved
         } else {
             ChangeKind::EndpointRemoved
@@ -313,6 +321,7 @@ fn compare_parameters(base: &Endpoint, head: &Endpoint, push: &mut Push<'_>) {
         ) {
             emit_issue(
                 issue,
+                &base_parameter.span,
                 &head_parameter.span,
                 &format!("parameter `{parameter_key}`"),
                 push,
@@ -369,6 +378,7 @@ fn compare_request(base: &Endpoint, head: &Endpoint, push: &mut Push<'_>) {
         for issue in types::compare(base_ty, head_ty, TypeDirection::Request) {
             emit_issue(
                 issue,
+                &base_request.span,
                 &head_request.span,
                 &format!("request body (`{media_type}`)"),
                 push,
@@ -422,6 +432,7 @@ fn compare_payload_media_types(
         for issue in types::compare(base_ty, head_ty, TypeDirection::Response) {
             emit_issue(
                 issue,
+                &base_response.span,
                 &head_response.span,
                 &format!("response `{status}`"),
                 push,
@@ -544,7 +555,22 @@ fn scheme_difference(base: &SecurityScheme, head: &SecurityScheme) -> Option<Str
 
 /// Lift a type-level issue into a `Change`, prefixing the location so a
 /// message reads "response `200` field `id`" rather than a bare pointer.
-fn emit_issue(issue: TypeIssue, span: &Span, context: &str, push: &mut Push<'_>) {
+///
+/// Takes both spans and reports against whichever artifact contains the thing
+/// being described: a removed field only exists in the baseline, so pointing at
+/// the head would send a reader to a line that does not mention it.
+fn emit_issue(
+    issue: TypeIssue,
+    base_span: &Span,
+    head_span: &Span,
+    context: &str,
+    push: &mut Push<'_>,
+) {
+    let removal = matches!(
+        issue,
+        TypeIssue::ResponseFieldRemoved { .. } | TypeIssue::RequestVariantRemoved { .. }
+    );
+    let span = if removal { base_span } else { head_span };
     let full = |pointer: &str| format!("{}{pointer}", span.pointer);
     let at = |pointer: &str| {
         if pointer.is_empty() {

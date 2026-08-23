@@ -1,0 +1,21 @@
+---
+source: tests/diagnostics.rs
+expression: rendered
+---
+=== wire ===
+param-added-required required input added: query:tenant in `GET /payments/{payment_id}`
+
+=== wire-json ===
+param-added-required required input added: query:tenant in `GET /payments/{payment_id}`
+response-field-optional response field became optional: response `200` at `/customer_id`: field `customer_id` in `GET /payments/{payment_id}`
+
+=== surface ===
+param-added-required required input added: query:tenant in `GET /payments/{payment_id}`
+path-parameter-renamed operationId `getPayment` moved from `GET /payments/{id}` to `GET /payments/{payment_id}`
+response-field-optional response field became optional: response `200` at `/customer_id`: field `customer_id` in `GET /payments/{payment_id}`
+
+=== strict ===
+param-added-required required input added: query:tenant in `GET /payments/{payment_id}`
+path-parameter-renamed operationId `getPayment` moved from `GET /payments/{id}` to `GET /payments/{payment_id}`
+response-field-added response field added: response `200` at `/settled_at`: field `settled_at` in `GET /payments/{payment_id}`
+response-field-optional response field became optional: response `200` at `/customer_id`: field `customer_id` in `GET /payments/{payment_id}`
