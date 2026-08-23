@@ -54,12 +54,11 @@ fn render_finding(report: &Report, finding: &Finding) -> String {
 
     let rule = catalogue::lookup(finding.rule_id);
     let contract_note = format!("contract: `{}`", finding.contract);
-    let rationale = rule.map(|rule| {
-        format!(
-            "{}\n\nrun `brake explain {}` for the full rationale",
-            rule.explanation, rule.id
-        )
-    });
+
+    // The help block is what someone reads at the moment they are blocked, so
+    // it carries what to *do*. The rationale for why the rule exists is a
+    // paragraph they do not need in order to act, and lives in `brake explain`.
+    let help = rule.map(|rule| help_text(rule, finding));
 
     // Only quote source when the artifact's text is on the report; a baseline
     // resolved from a git blob has text, one that failed to read does not.
@@ -99,8 +98,8 @@ fn render_finding(report: &Report, finding: &Finding) -> String {
     }
 
     let mut report_groups = vec![group];
-    if let Some(rationale) = &rationale {
-        report_groups.push(Group::with_title(Level::HELP.secondary_title(rationale)));
+    if let Some(help) = &help {
+        report_groups.push(Group::with_title(Level::HELP.secondary_title(help)));
     }
 
     format!("{}\n", Renderer::plain().render(&report_groups))
@@ -133,6 +132,57 @@ fn severity_label(severity: Severity) -> &'static str {
         Severity::Warning => "warning",
         Severity::Error => "error",
     }
+}
+
+/// The `help:` block: the ways out, then where to read more.
+///
+/// brake names the applicable strategies and what each costs, and does not
+/// pick between them — which one fits depends on whether you control every
+/// consumer and whether you have a version scheme, neither of which brake can
+/// see. Saying so is more useful than a confident guess.
+#[cfg(feature = "cli")]
+fn help_text(rule: &catalogue::Rule, finding: &Finding) -> String {
+    let remediations = finding.remediations();
+    if remediations.is_empty() {
+        return format!(
+            "{}\n\nrun `brake explain {}` for the full rationale",
+            rule.summary, rule.id
+        );
+    }
+
+    let count = match remediations.len() {
+        1 => "one way".to_owned(),
+        2 => "two ways".to_owned(),
+        3 => "three ways".to_owned(),
+        other => format!("{other} ways"),
+    };
+    let mut out = format!("{count} to make this change safely\n");
+    for (index, remediation) in remediations.iter().enumerate() {
+        // No leading indent: annotate-snippets already indents the whole
+        // help block, and the two compound into a hanging column.
+        out.push_str(&format!(
+            "{}. {} — {}\n   costs: {}\n",
+            index + 1,
+            remediation.strategy,
+            remediation.summary,
+            remediation.cost
+        ));
+    }
+    // Only where there is a genuine choice: a single option is not a
+    // decision, and saying otherwise reads as boilerplate.
+    if remediations.len() > 1 {
+        out.push_str(
+            "\nwhich one fits depends on whether you control every consumer — brake \
+cannot see that.\n",
+        );
+    } else {
+        out.push('\n');
+    }
+    out.push_str(&format!(
+        "run `brake explain {}` for why this breaks",
+        rule.id
+    ));
+    out
 }
 
 /// Byte offsets for the annotated span, clamped to the line.
@@ -180,6 +230,7 @@ mod tests {
             method: Some("GET".to_owned()),
             path: Some("/payments/{id}".to_owned()),
             pointer: "/paths/~1payments~1{id}/get/responses/200".to_owned(),
+            subject: Some("customer_id".to_owned()),
             span,
         }
     }
@@ -217,15 +268,28 @@ mod tests {
     }
 
     #[test]
-    fn prints_the_rule_rationale_where_the_developer_is_blocked() {
+    fn tells_a_blocked_developer_how_to_make_the_change_safely() {
         let rendered = render(&report_with_source());
+
         assert!(
-            rendered.contains("brake explain response-field-removed"),
+            rendered.contains("three ways to make this change safely"),
+            "{rendered}"
+        );
+        assert!(rendered.contains("deprecate-then-remove"), "{rendered}");
+        assert!(
+            rendered.contains("`customer_id`"),
+            "the strategy must name the field it is about:\n{rendered}"
+        );
+        // Options with no costs read as though they are all free.
+        assert!(rendered.contains("costs:"), "{rendered}");
+        // And brake must not pretend it can choose.
+        assert!(
+            rendered.contains("brake\ncannot see that") || rendered.contains("cannot see that"),
             "{rendered}"
         );
         assert!(
-            rendered.contains("Deprecate the field"),
-            "the rationale should be rendered verbatim:\n{rendered}"
+            rendered.contains("brake explain response-field-removed"),
+            "{rendered}"
         );
     }
 

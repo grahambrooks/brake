@@ -9,7 +9,7 @@ warning[contract-partial]: not fully verified — 200: `$ref` into another file 
    |           ^^^^^^^^^^^ here
    |
    = note: contract: `payments`
-help: The comparison happened, but not over the whole payload — so the result is 'not fully verified', never 'clean'. A tool that silently ignores what it cannot parse is worse than no tool, because it manufactures confidence. The finding names the construct and its JSON pointer so you can decide whether the unverified part matters.
+help: A compared path contains a construct brake cannot model.
       
       run `brake explain contract-partial` for the full rationale
 
@@ -20,6 +20,6 @@ warning[contract-partial]: not fully verified — response `200`: `$ref` into an
    |           ^^^^^^^^^^^ here
    |
    = note: contract: `payments`
-help: The comparison happened, but not over the whole payload — so the result is 'not fully verified', never 'clean'. A tool that silently ignores what it cannot parse is worse than no tool, because it manufactures confidence. The finding names the construct and its JSON pointer so you can decide whether the unverified part matters.
+help: A compared path contains a construct brake cannot model.
       
       run `brake explain contract-partial` for the full rationale

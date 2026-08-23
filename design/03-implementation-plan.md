@@ -264,6 +264,23 @@ GraphQL needed no comparator change at all. Union members carry a
 `__typename` field, which is both how a consumer actually discriminates them
 and what keeps two structurally identical members distinct.
 
+### M11 — Remediation ✅
+
+Every rule that reports a break carries an ordered list of evolution
+strategies, bound to the finding's subject and rendered in text, JSON, SARIF
+and `brake explain`. Specified in
+[02-contract-gates.md](02-contract-gates.md) §5.7.
+
+The trap, and it is the same one the tool exists to prevent: the subject has to
+be carried explicitly on the `Change`. Deriving it from the JSON pointer works
+for a field and fails for a parameter, whose pointer ends in its *index* — the
+first cut confidently advised "keep `0` optional". A wrong instruction in the
+part meant to help is worse than no help.
+
+**Done when:** a removed response field is reported with three named strategies
+naming that field, a newly required parameter with two naming that parameter,
+and a purely additive change with none.
+
 ### M10 — MCP interface (~4 days), designed
 
 Specified in [04-mcp-interface.md](04-mcp-interface.md), not built. The same

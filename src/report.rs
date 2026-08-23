@@ -95,6 +95,7 @@ mod tests {
             method: Some("GET".to_owned()),
             path: Some("/payments/{id}".to_owned()),
             pointer: "/paths/~1payments~1{id}/get".to_owned(),
+            subject: None,
             span: Some(Span::new(
                 "api/openapi.yaml",
                 10,

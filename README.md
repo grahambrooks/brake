@@ -21,13 +21,27 @@ error[response-field-removed]: response field removed: field `customer_id` in `G
     |         ^^^^^^^^^^^ here
     |
     = note: contract: `payments`
-help: Any consumer reading that field now gets nothing, and a consumer
-      deserialising into a type with a non-optional field for it fails
-      outright. Deprecate the field for a release before removing it — that is
-      the sanctioned path, and a team that follows it never needs a suppression.
+help: three ways to make this change safely
+      1. deprecate-then-remove — mark `customer_id` deprecated now and remove it
+         in a later release, once consumers have had a version to migrate
+         costs: the removal waits for a deprecation window you have to observe
+      2. expand-then-contract — add the replacement alongside `customer_id`, move
+         readers across, and remove `customer_id` only when nothing reads it
+         costs: both shapes are live at once, and the second half is easy to forget
+      3. version-the-endpoint — serve the change at a new path, media type or
+         version header, leaving `GET /payments/{id}` answering as it does today
+         costs: two implementations to maintain until the old one is retired
 
-      run `brake explain response-field-removed` for the full rationale
+      which one fits depends on whether you control every consumer — brake
+      cannot see that.
+      run `brake explain response-field-removed` for why this breaks
 ```
+
+It does not stop at "no". Every rule that reports a break carries the ways to
+make the same change safely, named and costed, bound to the field it is about.
+brake does not choose between them — which one fits depends on whether you
+control every consumer and whether you have a version scheme, and it can see
+neither.
 
 ## The name
 

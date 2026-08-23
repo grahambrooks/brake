@@ -289,6 +289,82 @@ that follows it never needs a suppression.
 
 ---
 
+## 5.7 Remediation
+
+A finding tells a developer they have broken something. That is half the job:
+there is nearly always a way to make the same change safely, and the reason
+people ship breaks is usually that the safe path did not occur to them at the
+moment they were blocked.
+
+Every rule that reports a break carries an ordered list of **evolution
+strategies**, most direct first. A finding renders them bound to its own
+subject, so the developer reads their field name rather than a general
+principle:
+
+```
+help: three ways to make this change safely
+      1. deprecate-then-remove — mark `customer_id` deprecated now and remove it
+         in a later release, once consumers have had a version to migrate
+         costs: the removal waits for a deprecation window you have to observe
+      2. expand-then-contract — add the replacement alongside `customer_id`, move
+         readers across, and remove `customer_id` only when nothing reads it
+         costs: both shapes are live at once, and the second half is easy to forget
+      3. version-the-endpoint — serve the change at a new path, media type or
+         version header, leaving `GET /payments/{id}` answering as it does today
+         costs: two implementations to maintain until the old one is retired
+
+      which one fits depends on whether you control every consumer — brake
+      cannot see that.
+```
+
+### 5.7.1 Three properties, each load-bearing
+
+**Catalogued, not generated.** A strategy is a named technique with fixed text
+and a `{subject}` / `{endpoint}` placeholder pair. Nothing is composed per call.
+That is what lets a test assert the wording, and what lets brake stand behind
+it — the same reason the rule explanations are static.
+
+**Costed.** Every strategy states what it costs, because a list of options with
+no costs reads as a list of things that are all free, which is not a decision
+anyone can make. `deprecate-then-remove` is cheap unless you needed the removal
+this week; `version-the-endpoint` is always available and always expensive.
+
+**Not chosen between.** brake names the applicable strategies and stops. Which
+one fits depends on whether you control every consumer, whether you have a
+version scheme, and how long you can carry two shapes — none of which brake can
+see. A tool that confidently picked would be wrong often enough to be ignored,
+and the whole ruleset is built on not doing that.
+
+### 5.7.2 What is not offered
+
+A rule that reports a *state* rather than a change — `contract-unreachable`,
+`contract-partial`, `stale-allow` — carries no strategies. There is nothing to
+route around when the contract could not be read.
+
+Neither do the purely additive rules that only fire under `strict`
+(`response-field-added`, `endpoint-added`). Nothing is broken, so there is no
+safer way to do it.
+
+**brake does not emit the corrected document.** For a mechanical break there is
+often a mechanical fix, and generating the deprecated form of a schema as a
+patch is a tempting next step. It is also a source-transformation engine, which
+is a materially larger thing than "reads files and reports" and a new class of
+output that can be wrong. The strategies describe the change; the developer
+makes it. Revisit only if the descriptions demonstrably are not enough.
+
+### 5.7.3 The subject
+
+A remediation names the field, parameter, status code or media type the finding
+is about. That subject is carried explicitly on the `Change`, not recovered
+from the JSON pointer: a parameter's pointer ends in its *index*, so deriving it
+produced `keep `0` optional` — a confident, wrong instruction, which is exactly
+the failure this tool exists to prevent, arriving in the part meant to help.
+
+Where the subject is the endpoint itself, the wording falls back to a pronoun
+rather than rendering empty backticks.
+
+---
+
 ## 6. Determinism
 
 This is what makes the gate trustworthy. A deterministic tool must be *provably*

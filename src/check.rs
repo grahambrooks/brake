@@ -458,6 +458,7 @@ fn run_drift(
         method: None,
         path: Some(display_path(&contract.source)),
         pointer: String::new(),
+        subject: None,
         span: None,
     }))
 }

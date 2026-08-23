@@ -54,6 +54,18 @@ pub fn render(report: &Report) -> String {
                 },
                 "properties": {
                     "contract": finding.contract,
+                    // Not SARIF `fixes`: those are patches an editor applies,
+                    // and brake describes the safe change rather than
+                    // performing it. See design/02-contract-gates.md §5.7.
+                    "remediation": finding
+                        .remediations()
+                        .into_iter()
+                        .map(|remediation| json!({
+                            "strategy": remediation.strategy,
+                            "summary": remediation.summary,
+                            "cost": remediation.cost,
+                        }))
+                        .collect::<Vec<_>>(),
                 },
             });
 
@@ -161,6 +173,7 @@ mod tests {
             method: Some("GET".to_owned()),
             path: Some("/payments/{id}".to_owned()),
             pointer: "/paths/~1payments~1{id}/get/responses/200/customer_id".to_owned(),
+            subject: Some("customer_id".to_owned()),
             span: Some(Span::new("api/openapi.yaml", line, 9, "/paths")),
         }
     }
@@ -266,6 +279,18 @@ mod tests {
         assert_ne!(
             one["runs"][0]["results"][0]["partialFingerprints"],
             two["runs"][0]["results"][0]["partialFingerprints"]
+        );
+    }
+
+    #[test]
+    fn results_carry_the_ways_out() {
+        let value = parsed(&Report::new(vec![finding(12)], Vec::new(), 1));
+        let remediation = &value["runs"][0]["results"][0]["properties"]["remediation"];
+        assert!(
+            remediation[0]["summary"]
+                .as_str()
+                .is_some_and(|text| text.contains("`customer_id`")),
+            "{remediation}"
         );
     }
 

@@ -27,6 +27,15 @@ pub struct Change {
     /// The specifics — a field name, a status code, a reason. Rules compose
     /// the human-readable message from this; `compare` does no presentation.
     pub detail: String,
+    /// What the change is *about*, as a bare name: the field, parameter,
+    /// status code or media type.
+    ///
+    /// Carried explicitly rather than parsed back out of `pointer` or
+    /// `detail`. A parameter's pointer ends in its index, so deriving it
+    /// produced confident nonsense — "keep `0` optional" — which is precisely
+    /// the failure this tool exists to prevent. `None` where the subject is
+    /// the endpoint itself.
+    pub subject: Option<String>,
     pub span: Span,
 }
 
@@ -123,6 +132,7 @@ pub fn compare_endpoint_sets(base: &Contract, head: &Contract) -> Vec<Change> {
                 "operationId `{operation_id}` moved from `{} {}` to `{} {}`",
                 base_key.method, base_key.path, head_key.method, head_key.path
             ),
+            subject: None,
             span: head_endpoint.span.clone(),
         });
     }
@@ -150,6 +160,7 @@ pub fn compare_endpoint_sets(base: &Contract, head: &Contract) -> Vec<Change> {
             endpoint: Some(base_key.clone()),
             pointer: base_endpoint.span.pointer.clone(),
             detail: String::new(),
+            subject: None,
             span: base_endpoint.span.clone(),
         });
 
@@ -161,6 +172,7 @@ pub fn compare_endpoint_sets(base: &Contract, head: &Contract) -> Vec<Change> {
                 endpoint: Some(base_key.clone()),
                 pointer: base_endpoint.span.pointer.clone(),
                 detail: format!("endpoint `{} {}`", base_key.method, base_key.path),
+                subject: None,
                 span: base_endpoint.span.clone(),
             });
         }
@@ -178,6 +190,7 @@ pub fn compare_endpoint_sets(base: &Contract, head: &Contract) -> Vec<Change> {
                 endpoint: Some(head_key.clone()),
                 pointer: head_endpoint.span.pointer.clone(),
                 detail: String::new(),
+                subject: None,
                 span: head_endpoint.span.clone(),
             });
         }
@@ -208,12 +221,17 @@ fn compare_endpoint_details(base: &Contract, head: &Contract) -> Vec<Change> {
             }
         };
 
-        let mut push = |kind: ChangeKind, pointer: String, detail: String, span: Span| {
+        let mut push = |kind: ChangeKind,
+                        pointer: String,
+                        detail: String,
+                        subject: Option<String>,
+                        span: Span| {
             changes.push(Change {
                 kind,
                 endpoint: Some(head_key.clone()),
                 pointer,
                 detail,
+                subject,
                 span,
             });
         };
@@ -229,7 +247,7 @@ fn compare_endpoint_details(base: &Contract, head: &Contract) -> Vec<Change> {
     changes
 }
 
-type Push<'a> = dyn FnMut(ChangeKind, String, String, Span) + 'a;
+type Push<'a> = dyn FnMut(ChangeKind, String, String, Option<String>, Span) + 'a;
 
 fn compare_operation_id(base: &Endpoint, head: &Endpoint, push: &mut Push<'_>) {
     if let (Some(base_id), Some(head_id)) = (&base.operation_id, &head.operation_id)
@@ -239,6 +257,7 @@ fn compare_operation_id(base: &Endpoint, head: &Endpoint, push: &mut Push<'_>) {
             ChangeKind::OperationIdChanged,
             head.span.pointer.clone(),
             format!("`{base_id}` became `{head_id}`"),
+            None,
             head.span.clone(),
         );
     }
@@ -250,6 +269,7 @@ fn compare_deprecation(head: &Endpoint, push: &mut Push<'_>) {
             ChangeKind::DeprecatedNoSunset,
             head.span.pointer.clone(),
             String::new(),
+            None,
             head.span.clone(),
         );
     }
@@ -287,6 +307,7 @@ fn compare_parameters(base: &Endpoint, head: &Endpoint, push: &mut Push<'_>) {
                     "parameter `{name}` moved from `{}` to `{}`",
                     base_parameter.location, head_parameter.location
                 ),
+                Some(name.clone()),
                 head_parameter.span.clone(),
             );
         }
@@ -301,6 +322,7 @@ fn compare_parameters(base: &Endpoint, head: &Endpoint, push: &mut Push<'_>) {
                 ChangeKind::ParamRemoved,
                 base_parameter.span.pointer.clone(),
                 parameter_key.clone(),
+                Some(base_parameter.name.clone()),
                 base_parameter.span.clone(),
             );
             continue;
@@ -311,6 +333,7 @@ fn compare_parameters(base: &Endpoint, head: &Endpoint, push: &mut Push<'_>) {
                 ChangeKind::ParamBecameRequired,
                 head_parameter.span.pointer.clone(),
                 parameter_key.clone(),
+                Some(head_parameter.name.clone()),
                 head_parameter.span.clone(),
             );
         }
@@ -341,6 +364,7 @@ fn compare_parameters(base: &Endpoint, head: &Endpoint, push: &mut Push<'_>) {
             },
             head_parameter.span.pointer.clone(),
             parameter_key.clone(),
+            Some(head_parameter.name.clone()),
             head_parameter.span.clone(),
         );
     }
@@ -371,6 +395,7 @@ fn compare_request(base: &Endpoint, head: &Endpoint, push: &mut Push<'_>) {
                 ChangeKind::RequestMediaTypeRemoved,
                 base_request.span.pointer.clone(),
                 media_type.clone(),
+                Some(media_type.clone()),
                 base_request.span.clone(),
             );
             continue;
@@ -394,6 +419,7 @@ fn compare_responses(base: &Endpoint, head: &Endpoint, push: &mut Push<'_>) {
                 ChangeKind::ResponseStatusRemoved,
                 base_response.span.pointer.clone(),
                 status.clone(),
+                Some(status.clone()),
                 base_response.span.clone(),
             );
             continue;
@@ -407,6 +433,7 @@ fn compare_responses(base: &Endpoint, head: &Endpoint, push: &mut Push<'_>) {
                 ChangeKind::ResponseStatusAdded,
                 head_response.span.pointer.clone(),
                 status.clone(),
+                Some(status.clone()),
                 head_response.span.clone(),
             );
         }
@@ -425,6 +452,7 @@ fn compare_payload_media_types(
                 ChangeKind::ResponseMediaTypeRemoved,
                 base_response.span.pointer.clone(),
                 format!("`{media_type}` from response `{status}`"),
+                Some(media_type.clone()),
                 base_response.span.clone(),
             );
             continue;
@@ -447,6 +475,7 @@ fn compare_payload_media_types(
             ChangeKind::ContractPartial,
             head_response.span.pointer.clone(),
             format!("response `{status}` no longer declares a schema"),
+            Some(status.to_owned()),
             head_response.span.clone(),
         );
     }
@@ -468,6 +497,7 @@ fn compare_security(base: &Endpoint, head: &Endpoint, push: &mut Push<'_>) {
             ChangeKind::SecurityAdded,
             head.span.pointer.clone(),
             added.clone(),
+            Some(added.clone()),
             head.span.clone(),
         );
     }
@@ -476,6 +506,7 @@ fn compare_security(base: &Endpoint, head: &Endpoint, push: &mut Push<'_>) {
             ChangeKind::SecurityRemoved,
             head.span.pointer.clone(),
             removed.clone(),
+            Some(removed.clone()),
             head.span.clone(),
         );
     }
@@ -504,6 +535,7 @@ fn compare_security(base: &Endpoint, head: &Endpoint, push: &mut Push<'_>) {
                     head_requirement.name,
                     added.join(", ")
                 ),
+                Some(head_requirement.name.clone()),
                 head.span.clone(),
             );
         }
@@ -522,6 +554,7 @@ fn compare_security_schemes(base: &Contract, head: &Contract) -> Vec<Change> {
                 endpoint: None,
                 pointer: head_scheme.span.pointer.clone(),
                 detail: format!("`{name}`: {detail}"),
+                subject: Some(name.clone()),
                 span: head_scheme.span.clone(),
             });
         }
@@ -580,61 +613,83 @@ fn emit_issue(
         }
     };
 
-    let (kind, pointer, detail) = match issue {
+    // Most issues name their own subject; for the few carrying only a
+    // pointer, the last segment is the field by construction — `field_pointer`
+    // builds it by appending the name. Unlike a parameter's pointer, which
+    // ends in an index, this one never carries a positional token.
+    let tail = |pointer: &str| {
+        pointer
+            .rsplit('/')
+            .find(|segment| !segment.is_empty())
+            .map(|segment| segment.replace("~1", "/").replace("~0", "~"))
+    };
+
+    let (kind, pointer, detail, subject) = match issue {
         TypeIssue::RequestTypeNarrowed { pointer, reason } => (
             ChangeKind::ParamTypeNarrowed,
             full(&pointer),
             format!("{}: {reason}", at(&pointer)),
+            tail(&pointer),
         ),
         TypeIssue::RequestFieldAddedRequired { pointer, field } => (
             ChangeKind::ParamAddedRequired,
             full(&pointer),
             format!("{}: required field `{field}`", at(&pointer)),
+            Some(field),
         ),
         TypeIssue::RequestFieldAddedOptional { pointer, field } => (
             ChangeKind::ParamAddedOptional,
             full(&pointer),
             format!("{}: optional field `{field}`", at(&pointer)),
+            Some(field),
         ),
         TypeIssue::RequestVariantRemoved { pointer } => (
             ChangeKind::ParamTypeNarrowed,
             full(&pointer),
-            format!("{}: a accepted union variant was removed", at(&pointer)),
+            format!("{}: an accepted union variant was removed", at(&pointer)),
+            tail(&pointer),
         ),
         TypeIssue::ResponseTypeChanged { pointer, reason } => (
             ChangeKind::ResponseTypeChanged,
             full(&pointer),
             format!("{}: {reason}", at(&pointer)),
+            tail(&pointer),
         ),
         TypeIssue::ResponseFieldRemoved { pointer, field } => (
             ChangeKind::ResponseFieldRemoved,
             full(&pointer),
             format!("{}: field `{field}`", at(&pointer)),
+            Some(field),
         ),
         TypeIssue::ResponseFieldOptional { pointer, field } => (
             ChangeKind::ResponseFieldOptional,
             full(&pointer),
             format!("{}: field `{field}`", at(&pointer)),
+            Some(field),
         ),
         TypeIssue::ResponseFieldAdded { pointer, field } => (
             ChangeKind::ResponseFieldAdded,
             full(&pointer),
             format!("{}: field `{field}`", at(&pointer)),
+            Some(field),
         ),
         TypeIssue::ResponseEnumExtended { pointer } => (
             ChangeKind::ResponseEnumExtended,
             full(&pointer),
             at(&pointer),
+            tail(&pointer),
         ),
         TypeIssue::ResponseVariantAdded { pointer } => (
             ChangeKind::ResponseEnumExtended,
             full(&pointer),
             format!("{}: a new union variant may now be returned", at(&pointer)),
+            tail(&pointer),
         ),
         TypeIssue::FieldRenamed { pointer, from, to } => (
             ChangeKind::FieldRenamed,
             full(&pointer),
             format!("{}: `{from}` became `{to}`", at(&pointer)),
+            Some(from),
         ),
         TypeIssue::FieldNumberChanged {
             pointer,
@@ -648,15 +703,17 @@ fn emit_issue(
                 "{}: field `{field}` moved from number {from} to {to}",
                 at(&pointer)
             ),
+            Some(field),
         ),
         TypeIssue::Partial { pointer, detail } => (
             ChangeKind::ContractPartial,
             full(&pointer),
             format!("{}: {detail}", at(&pointer)),
+            tail(&pointer),
         ),
     };
 
-    push(kind, pointer, detail, span.clone());
+    push(kind, pointer, detail, subject, span.clone());
 }
 
 /// The path template with every parameter name blanked, so `/p/{id}` and
@@ -728,6 +785,7 @@ pub fn partial_changes(contract: &Contract) -> Vec<Change> {
                         endpoint: Some(key.clone()),
                         pointer: payload.span.pointer.clone(),
                         detail: format!("{label}: {}", kind.describe()),
+                        subject: None,
                         span: payload.span.clone(),
                     });
                 }
@@ -744,6 +802,7 @@ pub fn partial_changes(contract: &Contract) -> Vec<Change> {
                     endpoint: Some(key.clone()),
                     pointer: parameter.span.pointer.clone(),
                     detail: format!("parameter `{}`: {}", parameter.name, kind.describe()),
+                    subject: Some(parameter.name.clone()),
                     span: parameter.span.clone(),
                 });
             }

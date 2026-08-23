@@ -22,6 +22,13 @@ pub struct Rule {
     pub level: Compatibility,
     pub summary: &'static str,
     pub explanation: &'static str,
+    /// Ways to make the same change without breaking a consumer, most
+    /// direct first.
+    ///
+    /// Ids into `strategies::STRATEGIES`; a test asserts every one resolves.
+    /// Empty is legitimate for a rule where nothing is broken and there is
+    /// nothing to route around — the integrity rules, mostly.
+    pub remedies: &'static [&'static str],
 }
 
 impl Rule {
@@ -46,6 +53,11 @@ pub static RULES: &[Rule] = &[
 version of this change that an existing caller survives, which is why it fires at every \
 compatibility level. Deprecate the endpoint, ship that, wait for consumers to migrate, and \
 remove it afterwards.",
+        remedies: &[
+            "deprecate-then-remove",
+            "version-the-endpoint",
+            "major-version",
+        ],
     },
     Rule {
         id: "method-removed",
@@ -55,6 +67,11 @@ remove it afterwards.",
         explanation: "The path still answers, so a consumer gets a 405 rather than a 404 — which \
 is harder to diagnose, because the endpoint looks alive. Treat it exactly like an endpoint \
 removal: deprecate first.",
+        remedies: &[
+            "deprecate-then-remove",
+            "version-the-endpoint",
+            "major-version",
+        ],
     },
     Rule {
         id: "endpoint-path-changed",
@@ -64,6 +81,7 @@ removal: deprecate first.",
         explanation: "The operation still exists, so this reads as a rename rather than a \
 removal — but a consumer is pinned to the old URL and does not know about the new one. If both \
 paths must work, serve both for a release rather than moving the operation in one step.",
+        remedies: &["expand-then-contract", "version-the-endpoint"],
     },
     Rule {
         id: "path-parameter-renamed",
@@ -74,6 +92,7 @@ paths must work, serve both for a release rather than moving the operation in on
 Generated clients are a different matter: the parameter name becomes an argument name, so \
 renaming it breaks every caller that passes arguments by name. That is why this is a `surface` \
 rule and not a `wire` one.",
+        remedies: &["keep-the-name", "major-version"],
     },
     Rule {
         id: "operation-id-changed",
@@ -83,6 +102,7 @@ rule and not a `wire` one.",
         explanation: "Nothing changes on the wire. Code generators derive method names from \
 operationId, so this renames a function in every generated client — a compile error for \
 consumers, and invisible to anyone testing over HTTP.",
+        remedies: &["keep-the-name", "major-version"],
     },
     Rule {
         id: "endpoint-added",
@@ -91,6 +111,7 @@ consumers, and invisible to anyone testing over HTTP.",
         summary: "A new endpoint appeared.",
         explanation: "Purely additive, and safe for every consumer. It fires only under `strict`, \
 where the contract is frozen and any change at all needs to be a deliberate, reviewed act.",
+        remedies: &[],
     },
     // ── §5.2 request compatibility ──────────────────────────────────────────
     Rule {
@@ -101,6 +122,7 @@ where the contract is frozen and any change at all needs to be a deliberate, rev
         explanation: "Every existing caller omits it, because it did not exist when they were \
 written. Add it as optional with a default, and require it in a later release once callers \
 have migrated.",
+        remedies: &["optional-with-default", "version-the-endpoint"],
     },
     Rule {
         id: "param-became-required",
@@ -109,6 +131,7 @@ have migrated.",
         summary: "An optional request parameter or field became required.",
         explanation: "Callers that legitimately omitted it now fail validation. This is the same \
 break as adding a required parameter, arriving by a different route.",
+        remedies: &["optional-with-default", "version-the-endpoint"],
     },
     Rule {
         id: "param-removed",
@@ -119,6 +142,7 @@ break as adding a required parameter, arriving by a different route.",
 unknown parameters tolerates it, and one validating with `additionalProperties: false` rejects \
 the request outright. It is a warning rather than an error because brake cannot see which \
 one you are.",
+        remedies: &["keep-accepting", "deprecate-then-remove"],
     },
     Rule {
         id: "param-type-narrowed",
@@ -128,6 +152,7 @@ one you are.",
         explanation: "Narrowing an input — `string` to `integer`, a smaller `maxLength`, a \
 removed enum member, nullable becoming non-nullable, `additionalProperties` closing — rejects \
 requests that were valid yesterday. Widening an input is always safe; narrowing never is.",
+        remedies: &["widen-dont-narrow", "version-the-endpoint", "major-version"],
     },
     Rule {
         id: "param-location-changed",
@@ -137,6 +162,7 @@ requests that were valid yesterday. Widening an input is always safe; narrowing 
         explanation: "The parameter still exists under the same name, so this is easy to read as \
 a harmless move. It is not: a caller sending it in the old location is now sending an unknown \
 parameter and omitting a known one, at the same time.",
+        remedies: &["accept-both-locations", "expand-then-contract"],
     },
     Rule {
         id: "param-added-optional",
@@ -145,6 +171,7 @@ parameter and omitting a known one, at the same time.",
         summary: "A new optional request parameter or field was added.",
         explanation: "Additive and safe: callers that ignore it are unaffected. It fires only \
 under `strict`, where the contract is frozen.",
+        remedies: &[],
     },
     Rule {
         id: "request-media-type-removed",
@@ -154,6 +181,7 @@ under `strict`, where the contract is frozen.",
         explanation: "A caller sending that Content-Type now gets a 415. Dropping XML because \
 'everyone uses JSON' is the usual way this lands, and the callers who did not get the memo are \
 exactly the ones who will not notice until production.",
+        remedies: &["keep-accepting", "deprecate-then-remove"],
     },
     // ── §5.3 response compatibility ─────────────────────────────────────────
     Rule {
@@ -165,6 +193,11 @@ exactly the ones who will not notice until production.",
 deserialising into a type with a non-optional field for it fails outright. Deprecate the field \
 for a release before removing it — that is the sanctioned path, and a team that follows it \
 never needs a suppression.",
+        remedies: &[
+            "deprecate-then-remove",
+            "expand-then-contract",
+            "version-the-endpoint",
+        ],
     },
     Rule {
         id: "response-field-optional",
@@ -175,6 +208,7 @@ never needs a suppression.",
 type for this field is non-optional — which is what a generator produces from a `required` \
 field — now fails to deserialise whenever the field is absent. It is a removal that only \
 happens sometimes, which makes it harder to debug, not easier.",
+        remedies: &["keep-emitting", "expand-then-contract"],
     },
     Rule {
         id: "response-field-added",
@@ -184,6 +218,7 @@ happens sometimes, which makes it harder to debug, not easier.",
         explanation: "Safe for any tolerant reader, and a break only for a consumer that rejects \
 unknown fields. It fires only under `strict`, where the contract is frozen and additions are \
 reviewed too.",
+        remedies: &[],
     },
     Rule {
         id: "response-type-changed",
@@ -193,6 +228,11 @@ reviewed too.",
         explanation: "The bytes a consumer receives no longer match the shape it was written \
 against. Changing a type in place gives consumers no migration window; add a new field \
 alongside the old one and remove the old one after a deprecation period.",
+        remedies: &[
+            "expand-then-contract",
+            "version-the-endpoint",
+            "major-version",
+        ],
     },
     Rule {
         id: "response-enum-extended",
@@ -203,6 +243,7 @@ alongside the old one and remove the old one after a deprecation period.",
 exhaustively on the enum does not — it panics, throws, or fails to compile on upgrade. \
 `graphql-inspector` calls this DANGEROUS rather than breaking for the same reason, and it is a \
 warning here so that teams generating exhaustive clients can raise it deliberately.",
+        remedies: &["document-open-enum", "version-the-endpoint"],
     },
     Rule {
         id: "response-status-removed",
@@ -211,6 +252,7 @@ warning here so that teams generating exhaustive clients can raise it deliberate
         summary: "A documented response status code is gone.",
         explanation: "A consumer with a branch for that status has dead code at best, and at \
 worst is now falling through to an error path for a response it used to handle.",
+        remedies: &["keep-emitting", "deprecate-then-remove"],
     },
     Rule {
         id: "response-status-added",
@@ -219,6 +261,7 @@ worst is now falling through to an error path for a response it used to handle."
         summary: "A response gained a documented status code.",
         explanation: "Additive documentation of an outcome that may already have been possible. \
 It fires only under `strict`.",
+        remedies: &[],
     },
     Rule {
         id: "response-media-type-removed",
@@ -227,6 +270,7 @@ It fires only under `strict`.",
         summary: "A response media type is gone.",
         explanation: "A consumer sending an Accept header for that type now gets a 406, or \
 silently receives a format it cannot parse.",
+        remedies: &["keep-emitting", "deprecate-then-remove"],
     },
     // ── wire identity ───────────────────────────────────────────────────────
     Rule {
@@ -238,6 +282,7 @@ silently receives a format it cannot parse.",
 wire, and the name exists only in the source. Renumbering a field means every already-deployed \
 client decodes those bytes into a different field, or drops them as unknown. This is the \
 canonical protobuf break and it is invisible in a name-based diff.",
+        remedies: &["reserve-the-number"],
     },
     Rule {
         id: "field-renamed",
@@ -247,6 +292,7 @@ canonical protobuf break and it is invisible in a name-based diff.",
         explanation: "The binary encoding is unaffected, so this is safe at `wire`. Anything \
 reading the JSON mapping of the message, or any generated struct field, breaks — which is why \
 it fires from `wire-json` upward and not below.",
+        remedies: &["keep-the-name", "expand-then-contract"],
     },
     // ── §5.4 security ───────────────────────────────────────────────────────
     Rule {
@@ -257,6 +303,7 @@ it fires from `wire-json` upward and not below.",
         explanation: "Every existing caller is now unauthenticated or under-scoped, and gets a \
 401 or 403. Strengthening authentication is often correct and urgent — but it is a breaking \
 change, and shipping it without telling consumers turns a security improvement into an outage.",
+        remedies: &["dual-accept-credentials", "version-the-endpoint"],
     },
     Rule {
         id: "security-scheme-changed",
@@ -265,6 +312,7 @@ change, and shipping it without telling consumers turns a security improvement i
         summary: "A security scheme's type, transport or flow changed.",
         explanation: "Consumers built credentials for the old scheme. Swapping an API key for \
 OAuth, or moving a token from a header to a cookie, invalidates every one of them.",
+        remedies: &["dual-accept-credentials", "version-the-endpoint"],
     },
     Rule {
         id: "security-removed",
@@ -274,6 +322,7 @@ OAuth, or moving a token from a header to a cookie, invalidates every one of the
         explanation: "Not a compatibility break — existing callers keep working, and that is \
 precisely the problem. An endpoint that quietly stopped requiring authentication is almost \
 always an accident, and nothing else in the pipeline will notice.",
+        remedies: &["confirm-intended"],
     },
     // ── §5.5 deprecation hygiene ────────────────────────────────────────────
     Rule {
@@ -285,6 +334,7 @@ always an accident, and nothing else in the pipeline will notice.",
 path for any removal is deprecate, ship, wait, remove — and a team that follows it never needs \
 a suppression, because by the time the removal lands the baseline already says `deprecated: \
 true`. If you are seeing this, the removal skipped a step rather than the gate being wrong.",
+        remedies: &["deprecate-then-remove", "add-sunset-date"],
     },
     Rule {
         id: "deprecated-no-sunset",
@@ -294,6 +344,7 @@ true`. If you are seeing this, the removal skipped a step rather than the gate b
         explanation: "A deprecation with no date is a deprecation that never ends, and consumers \
 correctly read it as no reason to move. Give it a date so the eventual removal is something \
 they were told about rather than something that happens to them.",
+        remedies: &["add-sunset-date"],
     },
     // ── §5.6 integrity ──────────────────────────────────────────────────────
     Rule {
@@ -305,6 +356,7 @@ they were told about rather than something that happens to them.",
 would be reporting a verification that did not happen. This also covers a `$ref` that resolves \
 over the network or outside the source directory: brake refuses those rather than fetching \
 them, because remote refs are the largest source of non-determinism in OpenAPI tooling.",
+        remedies: &[],
     },
     Rule {
         id: "contract-partial",
@@ -315,6 +367,7 @@ them, because remote refs are the largest source of non-determinism in OpenAPI t
 'not fully verified', never 'clean'. A tool that silently ignores what it cannot parse is worse \
 than no tool, because it manufactures confidence. The finding names the construct and its JSON \
 pointer so you can decide whether the unverified part matters.",
+        remedies: &[],
     },
     Rule {
         id: "stale-allow",
@@ -324,6 +377,7 @@ pointer so you can decide whether the unverified part matters.",
         explanation: "The break it was written for is gone, so the suppression is now a blanket \
 permission for a finding nobody has reviewed. Dead suppressions accumulate into a list that \
 hides live problems, which is the failure mode this rule exists to prevent.",
+        remedies: &[],
     },
     Rule {
         id: "expired-allow",
@@ -333,6 +387,7 @@ hides live problems, which is the failure mode this rule exists to prevent.",
         explanation: "The exception was granted until a date, and that date has passed. Either \
 the migration finished and the suppression should go, or it did not and that is worth someone \
 knowing about.",
+        remedies: &[],
     },
     Rule {
         id: "baseline-unconfigured",
@@ -343,6 +398,7 @@ knowing about.",
 never share an exit code. A *missing* baseline — one configured but unresolvable — is a tool \
 failure and exits 2. An *unconfigured* baseline exits 0 with this note, because failing a build \
 over configuration nobody has written yet teaches a team to disable the tool.",
+        remedies: &[],
     },
     Rule {
         id: "contract-new",
@@ -353,6 +409,7 @@ over configuration nobody has written yet teaches a team to disable the tool.",
 it could have broken. This is deliberately not a tool failure — a `git-merge-base` baseline does \
 not contain a file added by the change being checked, and failing there would make every new API \
 file fail CI on the commit that introduces it. The next commit compares normally.",
+        remedies: &[],
     },
     Rule {
         id: "contract-unconfigured",
@@ -362,6 +419,7 @@ file fail CI on the commit that introduces it. The next commit compares normally
         explanation: "brake only checks what it is told about. A new OpenAPI, proto or GraphQL \
 file that no `[[contract]]` declares is silently ungated, and the whole point of a gate is that \
 its coverage is not a matter of luck. Declare it, or move it somewhere the hook does not watch.",
+        remedies: &[],
     },
     Rule {
         id: "generated-drift",
@@ -370,6 +428,7 @@ its coverage is not a matter of luck. Declare it, or move it somewhere the hook 
         summary: "Generated contract output differs from the checked-in artifact.",
         explanation: "The committed contract no longer matches what the code produces, so every \
 check brake ran was against a stale document. Regenerate and commit the result.",
+        remedies: &[],
     },
 ];
 
@@ -455,6 +514,31 @@ or `brake explain` with no argument to list the catalogue.\n\n",
             level_name(rule.level),
             rule.explanation,
         ));
+
+        let remedies: Vec<_> = rule
+            .remedies
+            .iter()
+            .filter_map(|id| crate::rules::strategies::lookup(id))
+            .collect();
+        if remedies.is_empty() {
+            continue;
+        }
+        out.push_str(
+            "\n**Ways to make the change safely.** brake names these and does not \
+choose between them: which one fits depends on whether you control every consumer and \
+whether you have a version scheme, and it can see neither.\n\n",
+        );
+        for strategy in remedies {
+            out.push_str(&format!(
+                "- **`{}`** — {}\n  *Costs:* {}\n",
+                strategy.id,
+                strategy
+                    .summary
+                    .replace("{subject}", "the field")
+                    .replace("{endpoint}", "the endpoint"),
+                strategy.cost,
+            ));
+        }
     }
     out
 }
@@ -557,6 +641,69 @@ mod tests {
             let rule = rule_for(kind);
             assert!(!rule.id.is_empty(), "unmapped kind {kind:?}");
         }
+    }
+
+    #[test]
+    fn every_named_remedy_resolves_to_a_strategy() {
+        for rule in RULES {
+            for id in rule.remedies {
+                assert!(
+                    crate::rules::strategies::lookup(id).is_some(),
+                    "`{}` names strategy `{id}`, which is not in the catalogue",
+                    rule.id
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn every_breaking_rule_offers_a_way_out() {
+        // A finding that blocks a commit with no suggested alternative is how
+        // a gate gets argued with rather than acted on. Rules that report a
+        // *state* rather than a change are exempt: there is nothing to route
+        // around when the contract simply could not be read.
+        const STATE_RULES: &[&str] = &[
+            "contract-unreachable",
+            "contract-partial",
+            "contract-new",
+            "contract-unconfigured",
+            "baseline-unconfigured",
+            "stale-allow",
+            "expired-allow",
+            "generated-drift",
+            // Purely additive; nothing was broken.
+            "endpoint-added",
+            "param-added-optional",
+            "response-field-added",
+            "response-status-added",
+        ];
+
+        for rule in RULES {
+            if STATE_RULES.contains(&rule.id) {
+                continue;
+            }
+            assert!(
+                !rule.remedies.is_empty(),
+                "`{}` blocks a change and suggests no way to make it safely",
+                rule.id
+            );
+        }
+    }
+
+    #[test]
+    fn remedies_are_ordered_most_direct_first() {
+        // The first suggestion is the one most people will take, so it has to
+        // be the one that needs least ceremony.
+        let removed = lookup("response-field-removed").expect("known rule");
+        assert_eq!(removed.remedies[0], "deprecate-then-remove");
+
+        let required = lookup("param-added-required").expect("known rule");
+        assert_eq!(required.remedies[0], "optional-with-default");
+
+        // Renumbering has exactly one correct answer, and offering
+        // alternatives would imply otherwise.
+        let renumbered = lookup("field-number-changed").expect("known rule");
+        assert_eq!(renumbered.remedies, &["reserve-the-number"]);
     }
 
     #[test]

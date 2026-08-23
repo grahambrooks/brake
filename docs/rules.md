@@ -53,6 +53,15 @@ Severity `error`, fires from `wire` upward.
 
 Every consumer that still calls this endpoint now gets a 404. There is no version of this change that an existing caller survives, which is why it fires at every compatibility level. Deprecate the endpoint, ship that, wait for consumers to migrate, and remove it afterwards.
 
+**Ways to make the change safely.** brake names these and does not choose between them: which one fits depends on whether you control every consumer and whether you have a version scheme, and it can see neither.
+
+- **`deprecate-then-remove`** — mark the field deprecated now and remove it in a later release, once consumers have had a version to migrate
+  *Costs:* the removal waits for a deprecation window you have to actually observe
+- **`version-the-endpoint`** — serve the change at a new path, media type or version header, leaving the endpoint answering as it does today
+  *Costs:* two implementations to maintain until the old one is retired
+- **`major-version`** — if the break is genuinely intended, ship it as a new major version and tell consumers, rather than moving the endpoint underneath them
+  *Costs:* a major version is a migration you are asking every consumer to do
+
 ## method-removed
 
 **A method on a surviving path is absent in the head contract.**
@@ -60,6 +69,15 @@ Every consumer that still calls this endpoint now gets a 404. There is no versio
 Severity `error`, fires from `wire` upward.
 
 The path still answers, so a consumer gets a 405 rather than a 404 — which is harder to diagnose, because the endpoint looks alive. Treat it exactly like an endpoint removal: deprecate first.
+
+**Ways to make the change safely.** brake names these and does not choose between them: which one fits depends on whether you control every consumer and whether you have a version scheme, and it can see neither.
+
+- **`deprecate-then-remove`** — mark the field deprecated now and remove it in a later release, once consumers have had a version to migrate
+  *Costs:* the removal waits for a deprecation window you have to actually observe
+- **`version-the-endpoint`** — serve the change at a new path, media type or version header, leaving the endpoint answering as it does today
+  *Costs:* two implementations to maintain until the old one is retired
+- **`major-version`** — if the break is genuinely intended, ship it as a new major version and tell consumers, rather than moving the endpoint underneath them
+  *Costs:* a major version is a migration you are asking every consumer to do
 
 ## endpoint-path-changed
 
@@ -69,6 +87,13 @@ Severity `error`, fires from `wire` upward.
 
 The operation still exists, so this reads as a rename rather than a removal — but a consumer is pinned to the old URL and does not know about the new one. If both paths must work, serve both for a release rather than moving the operation in one step.
 
+**Ways to make the change safely.** brake names these and does not choose between them: which one fits depends on whether you control every consumer and whether you have a version scheme, and it can see neither.
+
+- **`expand-then-contract`** — add the replacement alongside the field, move readers across, and remove the field only when nothing reads it
+  *Costs:* both shapes are live at once, and the second half is easy to forget
+- **`version-the-endpoint`** — serve the change at a new path, media type or version header, leaving the endpoint answering as it does today
+  *Costs:* two implementations to maintain until the old one is retired
+
 ## path-parameter-renamed
 
 **A path template kept its shape but renamed a parameter.**
@@ -77,6 +102,13 @@ Severity `error`, fires from `surface` upward.
 
 The URL a consumer builds is unchanged, so nothing breaks on the wire. Generated clients are a different matter: the parameter name becomes an argument name, so renaming it breaks every caller that passes arguments by name. That is why this is a `surface` rule and not a `wire` one.
 
+**Ways to make the change safely.** brake names these and does not choose between them: which one fits depends on whether you control every consumer and whether you have a version scheme, and it can see neither.
+
+- **`keep-the-name`** — leave the field named as it is — the rename buys nothing on the wire and costs every generated client a code change
+  *Costs:* you live with a name you no longer like
+- **`major-version`** — if the break is genuinely intended, ship it as a new major version and tell consumers, rather than moving the endpoint underneath them
+  *Costs:* a major version is a migration you are asking every consumer to do
+
 ## operation-id-changed
 
 **An endpoint kept its path and method but changed its operationId.**
@@ -84,6 +116,13 @@ The URL a consumer builds is unchanged, so nothing breaks on the wire. Generated
 Severity `error`, fires from `surface` upward.
 
 Nothing changes on the wire. Code generators derive method names from operationId, so this renames a function in every generated client — a compile error for consumers, and invisible to anyone testing over HTTP.
+
+**Ways to make the change safely.** brake names these and does not choose between them: which one fits depends on whether you control every consumer and whether you have a version scheme, and it can see neither.
+
+- **`keep-the-name`** — leave the field named as it is — the rename buys nothing on the wire and costs every generated client a code change
+  *Costs:* you live with a name you no longer like
+- **`major-version`** — if the break is genuinely intended, ship it as a new major version and tell consumers, rather than moving the endpoint underneath them
+  *Costs:* a major version is a migration you are asking every consumer to do
 
 ## endpoint-added
 
@@ -101,6 +140,13 @@ Severity `error`, fires from `wire` upward.
 
 Every existing caller omits it, because it did not exist when they were written. Add it as optional with a default, and require it in a later release once callers have migrated.
 
+**Ways to make the change safely.** brake names these and does not choose between them: which one fits depends on whether you control every consumer and whether you have a version scheme, and it can see neither.
+
+- **`optional-with-default`** — keep the field optional and give it a default, then require it in a later release once callers send it
+  *Costs:* the default has to be a value that is correct for existing callers
+- **`version-the-endpoint`** — serve the change at a new path, media type or version header, leaving the endpoint answering as it does today
+  *Costs:* two implementations to maintain until the old one is retired
+
 ## param-became-required
 
 **An optional request parameter or field became required.**
@@ -108,6 +154,13 @@ Every existing caller omits it, because it did not exist when they were written.
 Severity `error`, fires from `wire` upward.
 
 Callers that legitimately omitted it now fail validation. This is the same break as adding a required parameter, arriving by a different route.
+
+**Ways to make the change safely.** brake names these and does not choose between them: which one fits depends on whether you control every consumer and whether you have a version scheme, and it can see neither.
+
+- **`optional-with-default`** — keep the field optional and give it a default, then require it in a later release once callers send it
+  *Costs:* the default has to be a value that is correct for existing callers
+- **`version-the-endpoint`** — serve the change at a new path, media type or version header, leaving the endpoint answering as it does today
+  *Costs:* two implementations to maintain until the old one is retired
 
 ## param-removed
 
@@ -117,6 +170,13 @@ Severity `warning`, fires from `wire-json` upward.
 
 Whether this breaks a caller depends on the server: an API that ignores unknown parameters tolerates it, and one validating with `additionalProperties: false` rejects the request outright. It is a warning rather than an error because brake cannot see which one you are.
 
+**Ways to make the change safely.** brake names these and does not choose between them: which one fits depends on whether you control every consumer and whether you have a version scheme, and it can see neither.
+
+- **`keep-accepting`** — go on accepting the field and ignore it, rather than rejecting requests that still send it
+  *Costs:* the input surface keeps a field nothing uses, until you deprecate it properly
+- **`deprecate-then-remove`** — mark the field deprecated now and remove it in a later release, once consumers have had a version to migrate
+  *Costs:* the removal waits for a deprecation window you have to actually observe
+
 ## param-type-narrowed
 
 **A request parameter or body type stopped accepting values it used to accept.**
@@ -125,6 +185,15 @@ Severity `error`, fires from `wire` upward.
 
 Narrowing an input — `string` to `integer`, a smaller `maxLength`, a removed enum member, nullable becoming non-nullable, `additionalProperties` closing — rejects requests that were valid yesterday. Widening an input is always safe; narrowing never is.
 
+**Ways to make the change safely.** brake names these and does not choose between them: which one fits depends on whether you control every consumer and whether you have a version scheme, and it can see neither.
+
+- **`widen-dont-narrow`** — accept both the old and the new form of the field and normalise them inside the handler
+  *Costs:* the handler carries the union until the old form is retired
+- **`version-the-endpoint`** — serve the change at a new path, media type or version header, leaving the endpoint answering as it does today
+  *Costs:* two implementations to maintain until the old one is retired
+- **`major-version`** — if the break is genuinely intended, ship it as a new major version and tell consumers, rather than moving the endpoint underneath them
+  *Costs:* a major version is a migration you are asking every consumer to do
+
 ## param-location-changed
 
 **A parameter moved between query, path, header or cookie.**
@@ -132,6 +201,13 @@ Narrowing an input — `string` to `integer`, a smaller `maxLength`, a removed e
 Severity `error`, fires from `wire` upward.
 
 The parameter still exists under the same name, so this is easy to read as a harmless move. It is not: a caller sending it in the old location is now sending an unknown parameter and omitting a known one, at the same time.
+
+**Ways to make the change safely.** brake names these and does not choose between them: which one fits depends on whether you control every consumer and whether you have a version scheme, and it can see neither.
+
+- **`accept-both-locations`** — read the field from both the old and the new location for a release, preferring the new one
+  *Costs:* two places to look, and a rule for what happens when both are sent
+- **`expand-then-contract`** — add the replacement alongside the field, move readers across, and remove the field only when nothing reads it
+  *Costs:* both shapes are live at once, and the second half is easy to forget
 
 ## param-added-optional
 
@@ -149,6 +225,13 @@ Severity `error`, fires from `wire` upward.
 
 A caller sending that Content-Type now gets a 415. Dropping XML because 'everyone uses JSON' is the usual way this lands, and the callers who did not get the memo are exactly the ones who will not notice until production.
 
+**Ways to make the change safely.** brake names these and does not choose between them: which one fits depends on whether you control every consumer and whether you have a version scheme, and it can see neither.
+
+- **`keep-accepting`** — go on accepting the field and ignore it, rather than rejecting requests that still send it
+  *Costs:* the input surface keeps a field nothing uses, until you deprecate it properly
+- **`deprecate-then-remove`** — mark the field deprecated now and remove it in a later release, once consumers have had a version to migrate
+  *Costs:* the removal waits for a deprecation window you have to actually observe
+
 ## response-field-removed
 
 **A field present in a baseline response is gone.**
@@ -157,6 +240,15 @@ Severity `error`, fires from `wire-json` upward.
 
 Any consumer reading that field now gets nothing, and a consumer deserialising into a type with a non-optional field for it fails outright. Deprecate the field for a release before removing it — that is the sanctioned path, and a team that follows it never needs a suppression.
 
+**Ways to make the change safely.** brake names these and does not choose between them: which one fits depends on whether you control every consumer and whether you have a version scheme, and it can see neither.
+
+- **`deprecate-then-remove`** — mark the field deprecated now and remove it in a later release, once consumers have had a version to migrate
+  *Costs:* the removal waits for a deprecation window you have to actually observe
+- **`expand-then-contract`** — add the replacement alongside the field, move readers across, and remove the field only when nothing reads it
+  *Costs:* both shapes are live at once, and the second half is easy to forget
+- **`version-the-endpoint`** — serve the change at a new path, media type or version header, leaving the endpoint answering as it does today
+  *Costs:* two implementations to maintain until the old one is retired
+
 ## response-field-optional
 
 **A response field that was always present became optional.**
@@ -164,6 +256,13 @@ Any consumer reading that field now gets nothing, and a consumer deserialising i
 Severity `error`, fires from `wire-json` upward.
 
 Nothing was removed, so this looks safe in a diff. But a consumer whose type for this field is non-optional — which is what a generator produces from a `required` field — now fails to deserialise whenever the field is absent. It is a removal that only happens sometimes, which makes it harder to debug, not easier.
+
+**Ways to make the change safely.** brake names these and does not choose between them: which one fits depends on whether you control every consumer and whether you have a version scheme, and it can see neither.
+
+- **`keep-emitting`** — go on producing the field alongside whatever replaces it, so existing readers keep working
+  *Costs:* the response carries a field you have stopped using
+- **`expand-then-contract`** — add the replacement alongside the field, move readers across, and remove the field only when nothing reads it
+  *Costs:* both shapes are live at once, and the second half is easy to forget
 
 ## response-field-added
 
@@ -181,6 +280,15 @@ Severity `error`, fires from `wire-json` upward.
 
 The bytes a consumer receives no longer match the shape it was written against. Changing a type in place gives consumers no migration window; add a new field alongside the old one and remove the old one after a deprecation period.
 
+**Ways to make the change safely.** brake names these and does not choose between them: which one fits depends on whether you control every consumer and whether you have a version scheme, and it can see neither.
+
+- **`expand-then-contract`** — add the replacement alongside the field, move readers across, and remove the field only when nothing reads it
+  *Costs:* both shapes are live at once, and the second half is easy to forget
+- **`version-the-endpoint`** — serve the change at a new path, media type or version header, leaving the endpoint answering as it does today
+  *Costs:* two implementations to maintain until the old one is retired
+- **`major-version`** — if the break is genuinely intended, ship it as a new major version and tell consumers, rather than moving the endpoint underneath them
+  *Costs:* a major version is a migration you are asking every consumer to do
+
 ## response-enum-extended
 
 **A response enum gained a value.**
@@ -189,6 +297,13 @@ Severity `warning`, fires from `wire-json` upward.
 
 A tolerant reader copes. A generated Rust or TypeScript client matching exhaustively on the enum does not — it panics, throws, or fails to compile on upgrade. `graphql-inspector` calls this DANGEROUS rather than breaking for the same reason, and it is a warning here so that teams generating exhaustive clients can raise it deliberately.
 
+**Ways to make the change safely.** brake names these and does not choose between them: which one fits depends on whether you control every consumer and whether you have a version scheme, and it can see neither.
+
+- **`document-open-enum`** — document the field as an open set so consumers parse unknown values instead of matching exhaustively, and add the value once they do
+  *Costs:* consumers have to ship the tolerant reader before you ship the value
+- **`version-the-endpoint`** — serve the change at a new path, media type or version header, leaving the endpoint answering as it does today
+  *Costs:* two implementations to maintain until the old one is retired
+
 ## response-status-removed
 
 **A documented response status code is gone.**
@@ -196,6 +311,13 @@ A tolerant reader copes. A generated Rust or TypeScript client matching exhausti
 Severity `error`, fires from `wire-json` upward.
 
 A consumer with a branch for that status has dead code at best, and at worst is now falling through to an error path for a response it used to handle.
+
+**Ways to make the change safely.** brake names these and does not choose between them: which one fits depends on whether you control every consumer and whether you have a version scheme, and it can see neither.
+
+- **`keep-emitting`** — go on producing the field alongside whatever replaces it, so existing readers keep working
+  *Costs:* the response carries a field you have stopped using
+- **`deprecate-then-remove`** — mark the field deprecated now and remove it in a later release, once consumers have had a version to migrate
+  *Costs:* the removal waits for a deprecation window you have to actually observe
 
 ## response-status-added
 
@@ -213,6 +335,13 @@ Severity `error`, fires from `wire-json` upward.
 
 A consumer sending an Accept header for that type now gets a 406, or silently receives a format it cannot parse.
 
+**Ways to make the change safely.** brake names these and does not choose between them: which one fits depends on whether you control every consumer and whether you have a version scheme, and it can see neither.
+
+- **`keep-emitting`** — go on producing the field alongside whatever replaces it, so existing readers keep working
+  *Costs:* the response carries a field you have stopped using
+- **`deprecate-then-remove`** — mark the field deprecated now and remove it in a later release, once consumers have had a version to migrate
+  *Costs:* the removal waits for a deprecation window you have to actually observe
+
 ## field-number-changed
 
 **A field kept its name and changed its wire number.**
@@ -220,6 +349,11 @@ A consumer sending an Accept header for that type now gets a 406, or silently re
 Severity `error`, fires from `wire` upward.
 
 In protobuf the field number *is* the field: it is what appears on the wire, and the name exists only in the source. Renumbering a field means every already-deployed client decodes those bytes into a different field, or drops them as unknown. This is the canonical protobuf break and it is invisible in a name-based diff.
+
+**Ways to make the change safely.** brake names these and does not choose between them: which one fits depends on whether you control every consumer and whether you have a version scheme, and it can see neither.
+
+- **`reserve-the-number`** — restore the field to its original field number and add `reserved` for any number you are retiring, so it can never be reused
+  *Costs:* none — this is the only correct move; a reused number silently misreads data
 
 ## field-renamed
 
@@ -229,6 +363,13 @@ Severity `error`, fires from `wire-json` upward.
 
 The binary encoding is unaffected, so this is safe at `wire`. Anything reading the JSON mapping of the message, or any generated struct field, breaks — which is why it fires from `wire-json` upward and not below.
 
+**Ways to make the change safely.** brake names these and does not choose between them: which one fits depends on whether you control every consumer and whether you have a version scheme, and it can see neither.
+
+- **`keep-the-name`** — leave the field named as it is — the rename buys nothing on the wire and costs every generated client a code change
+  *Costs:* you live with a name you no longer like
+- **`expand-then-contract`** — add the replacement alongside the field, move readers across, and remove the field only when nothing reads it
+  *Costs:* both shapes are live at once, and the second half is easy to forget
+
 ## security-added
 
 **An endpoint gained a security requirement, or a stronger one.**
@@ -236,6 +377,13 @@ The binary encoding is unaffected, so this is safe at `wire`. Anything reading t
 Severity `error`, fires from `wire-json` upward.
 
 Every existing caller is now unauthenticated or under-scoped, and gets a 401 or 403. Strengthening authentication is often correct and urgent — but it is a breaking change, and shipping it without telling consumers turns a security improvement into an outage.
+
+**Ways to make the change safely.** brake names these and does not choose between them: which one fits depends on whether you control every consumer and whether you have a version scheme, and it can see neither.
+
+- **`dual-accept-credentials`** — accept the existing credential alongside the new one until consumers have issued themselves new ones
+  *Costs:* the weaker credential stays valid for the length of the transition
+- **`version-the-endpoint`** — serve the change at a new path, media type or version header, leaving the endpoint answering as it does today
+  *Costs:* two implementations to maintain until the old one is retired
 
 ## security-scheme-changed
 
@@ -245,6 +393,13 @@ Severity `error`, fires from `wire-json` upward.
 
 Consumers built credentials for the old scheme. Swapping an API key for OAuth, or moving a token from a header to a cookie, invalidates every one of them.
 
+**Ways to make the change safely.** brake names these and does not choose between them: which one fits depends on whether you control every consumer and whether you have a version scheme, and it can see neither.
+
+- **`dual-accept-credentials`** — accept the existing credential alongside the new one until consumers have issued themselves new ones
+  *Costs:* the weaker credential stays valid for the length of the transition
+- **`version-the-endpoint`** — serve the change at a new path, media type or version header, leaving the endpoint answering as it does today
+  *Costs:* two implementations to maintain until the old one is retired
+
 ## security-removed
 
 **An endpoint lost a security requirement.**
@@ -252,6 +407,11 @@ Consumers built credentials for the old scheme. Swapping an API key for OAuth, o
 Severity `warning`, fires from `wire-json` upward.
 
 Not a compatibility break — existing callers keep working, and that is precisely the problem. An endpoint that quietly stopped requiring authentication is almost always an accident, and nothing else in the pipeline will notice.
+
+**Ways to make the change safely.** brake names these and does not choose between them: which one fits depends on whether you control every consumer and whether you have a version scheme, and it can see neither.
+
+- **`confirm-intended`** — confirm this was deliberate — if it was, record why in a `[[contract.allow]]` entry so the next reviewer does not have to work it out
+  *Costs:* none, but it is a decision someone has to actually make
 
 ## removed-without-deprecation
 
@@ -261,6 +421,13 @@ Severity `error`, fires from `wire-json` upward.
 
 This is the rule that makes the rest of the gate humane. The sanctioned path for any removal is deprecate, ship, wait, remove — and a team that follows it never needs a suppression, because by the time the removal lands the baseline already says `deprecated: true`. If you are seeing this, the removal skipped a step rather than the gate being wrong.
 
+**Ways to make the change safely.** brake names these and does not choose between them: which one fits depends on whether you control every consumer and whether you have a version scheme, and it can see neither.
+
+- **`deprecate-then-remove`** — mark the field deprecated now and remove it in a later release, once consumers have had a version to migrate
+  *Costs:* the removal waits for a deprecation window you have to actually observe
+- **`add-sunset-date`** — give the field an `x-sunset` date, and announce it, so the eventual removal is something consumers were told about
+  *Costs:* you are committing to a date
+
 ## deprecated-no-sunset
 
 **An endpoint is deprecated with no `x-sunset` date.**
@@ -268,6 +435,11 @@ This is the rule that makes the rest of the gate humane. The sanctioned path for
 Severity `info`, fires from `wire-json` upward.
 
 A deprecation with no date is a deprecation that never ends, and consumers correctly read it as no reason to move. Give it a date so the eventual removal is something they were told about rather than something that happens to them.
+
+**Ways to make the change safely.** brake names these and does not choose between them: which one fits depends on whether you control every consumer and whether you have a version scheme, and it can see neither.
+
+- **`add-sunset-date`** — give the field an `x-sunset` date, and announce it, so the eventual removal is something consumers were told about
+  *Costs:* you are committing to a date
 
 ## contract-unreachable
 

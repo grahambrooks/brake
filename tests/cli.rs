@@ -592,3 +592,74 @@ fn output_is_byte_identical_across_repeated_invocations() {
         );
     }
 }
+
+#[test]
+fn every_breaking_finding_carries_a_way_out() {
+    // A finding that blocks a commit and suggests nothing is a finding people
+    // argue with rather than act on. Walk the catalogue and assert that every
+    // rule which reports a break names at least one strategy, and that no
+    // strategy reaches a user with an unbound placeholder in it.
+    let here = tempdir().expect("tempdir");
+    let listing = stdout(&brake(here.path(), &["explain"]));
+
+    for line in listing.lines() {
+        let rule_id = line.split_whitespace().next().expect("a rule id");
+        let text = stdout(&brake(here.path(), &["explain", rule_id]));
+
+        assert!(
+            !text.contains("{subject}") && !text.contains("{endpoint}"),
+            "`{rule_id}` renders an unbound placeholder"
+        );
+
+        if text.contains("ways to make the change safely:") {
+            assert!(
+                text.contains("costs:"),
+                "`{rule_id}` lists strategies with no costs, which reads as though \
+                 they are all free"
+            );
+        }
+    }
+}
+
+#[test]
+fn a_finding_names_the_field_its_advice_is_about() {
+    let repo = repo(&[
+        (
+            "brake.toml",
+            "[[contract]]\nname=\"c\"\nformat=\"openapi\"\nsource=\"api/c.yaml\"\n\
+             baseline={file=\"api/c.baseline.yaml\"}\n",
+        ),
+        (
+            "api/c.baseline.yaml",
+            "openapi: 3.1.0\npaths:\n  /p:\n    post:\n      operationId: createPayment\n\
+             \x20     responses:\n        \"201\": {description: ok}\n",
+        ),
+        (
+            "api/c.yaml",
+            "openapi: 3.1.0\npaths:\n  /p:\n    post:\n      operationId: createPayment\n\
+             \x20     parameters:\n        - {name: tenant, in: query, required: true, \
+             schema: {type: string}}\n      responses:\n        \"201\": {description: ok}\n",
+        ),
+    ]);
+
+    let output = brake(repo.path(), &["check", "--format", "json"]);
+    assert_eq!(code(&output), 1);
+    let parsed: serde_json::Value = serde_json::from_str(&stdout(&output)).expect("json");
+    let finding = &parsed["findings"][0];
+
+    assert_eq!(finding["subject"], "tenant");
+    let summary = finding["remediation"][0]["summary"]
+        .as_str()
+        .expect("a bound summary");
+    assert!(
+        summary.contains("`tenant`"),
+        // A parameter's JSON pointer ends in its index, so deriving the
+        // subject from it once produced "keep `0` optional".
+        "the advice must name the parameter, not its position: {summary}"
+    );
+
+    // The text rendering agrees with the structured one.
+    let text = stdout(&brake(repo.path(), &["check", "--format", "text"]));
+    assert!(text.contains("optional-with-default"), "{text}");
+    assert!(text.contains("`tenant`"), "{text}");
+}

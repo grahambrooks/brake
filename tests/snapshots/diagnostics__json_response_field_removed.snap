@@ -15,8 +15,21 @@ expression: "serde_json::to_string_pretty(&value).expect(\"pretty\")"
       "method": "GET",
       "path": "/payments/{id}",
       "pointer": "/paths/~1payments~1{id}/get/responses/200/status",
+      "remediation": [
+        {
+          "cost": "consumers have to ship the tolerant reader before you ship the value",
+          "strategy": "document-open-enum",
+          "summary": "document `status` as an open set so consumers parse unknown values instead of matching exhaustively, and add the value once they do"
+        },
+        {
+          "cost": "two implementations to maintain until the old one is retired",
+          "strategy": "version-the-endpoint",
+          "summary": "serve the change at a new path, media type or version header, leaving `GET /payments/{id}` answering as it does today"
+        }
+      ],
       "rule": "response-enum-extended",
-      "severity": "warning"
+      "severity": "warning",
+      "subject": "status"
     },
     {
       "column": 11,
@@ -28,8 +41,26 @@ expression: "serde_json::to_string_pretty(&value).expect(\"pretty\")"
       "method": "GET",
       "path": "/payments/{id}",
       "pointer": "/paths/~1payments~1{id}/get/responses/200/customer_id",
+      "remediation": [
+        {
+          "cost": "the removal waits for a deprecation window you have to actually observe",
+          "strategy": "deprecate-then-remove",
+          "summary": "mark `customer_id` deprecated now and remove it in a later release, once consumers have had a version to migrate"
+        },
+        {
+          "cost": "both shapes are live at once, and the second half is easy to forget",
+          "strategy": "expand-then-contract",
+          "summary": "add the replacement alongside `customer_id`, move readers across, and remove `customer_id` only when nothing reads it"
+        },
+        {
+          "cost": "two implementations to maintain until the old one is retired",
+          "strategy": "version-the-endpoint",
+          "summary": "serve the change at a new path, media type or version header, leaving `GET /payments/{id}` answering as it does today"
+        }
+      ],
       "rule": "response-field-removed",
-      "severity": "error"
+      "severity": "error",
+      "subject": "customer_id"
     }
   ],
   "unavailable": []

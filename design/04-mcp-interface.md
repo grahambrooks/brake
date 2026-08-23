@@ -52,10 +52,17 @@ exclusions: so a later session does not "complete" something cut on purpose.
   should exist, be paginated, or be named well. `vacuum` and `spectral` lint
   style; brake reports what breaks a consumer. An advice interface makes the
   boundary *more* tempting to cross, not less.
-- **It does not generate advice.** It returns the rationale already in
-  `rules/catalogue.rs`, bound to the specific change that triggered it. The
-  agent does the reasoning. Deterministic text keyed to a rule is something
-  brake can stand behind; prose invented per-call is not.
+- **It does not generate advice.** It returns the catalogued evolution
+  strategies of [02-contract-gates.md](02-contract-gates.md) §5.7, bound to the
+  specific field or endpoint that triggered the finding. Deterministic text
+  keyed to a rule is something brake can stand behind; prose invented per-call
+  is not.
+- **It does not choose between them.** Which strategy fits depends on whether
+  the team controls every consumer and whether they have a version scheme.
+  brake cannot see either, and an agent handed a single confident
+  recommendation will follow it. Naming the options with their costs and saying
+  the choice is not brake's is the honest shape, and the agent is in a better
+  position to weigh them than brake is — it can read the rest of the repository.
 - **It never runs a subprocess.** See §5 — this is the load-bearing exclusion.
 - **It is not a network service.** stdio transport only, no HTTP, no SSE.
 
@@ -100,8 +107,26 @@ and the rule's rationale. Structured content, not prose:
     "rule": "response-field-removed",
     "severity": "error",
     "pointer": "/paths/~1payments~1{id}/get/responses/200/customer_id",
+    "subject": "customer_id",
     "message": "response field removed: field `customer_id` in `GET /payments/{id}`",
     "rationale": "Any consumer reading that field now gets nothing…",
+    // §5.7 of the specification, bound to this finding's subject. Ordered
+    // most direct first; brake does not choose between them, and the
+    // response says so rather than leaving it implied.
+    "remediation": [{
+      "strategy": "deprecate-then-remove",
+      "summary": "mark `customer_id` deprecated now and remove it in a later release, once consumers have had a version to migrate",
+      "cost": "the removal waits for a deprecation window you have to actually observe"
+    }, {
+      "strategy": "expand-then-contract",
+      "summary": "add the replacement alongside `customer_id`, move readers across, and remove `customer_id` only when nothing reads it",
+      "cost": "both shapes are live at once, and the second half is easy to forget"
+    }, {
+      "strategy": "version-the-endpoint",
+      "summary": "serve the change at a new path, media type or version header, leaving `GET /payments/{id}` answering as it does today",
+      "cost": "two implementations to maintain until the old one is retired"
+    }],
+    "choice_is_not_brakes": "which strategy fits depends on whether you control every consumer and whether you have a version scheme; brake can see neither",
     "help_uri": "https://…/docs/rules.md#response-field-removed"
   }],
   "unverified": [{                        // contract-partial, promoted
@@ -154,18 +179,25 @@ spending a tool call per rule:
 | URI | Content |
 | --- | --- |
 | `brake://rules` | The catalogue — every rule, severity, and level |
-| `brake://rules/{id}` | One rule, with its full rationale |
+| `brake://rules/{id}` | One rule, with its full rationale and its strategies |
+| `brake://strategies` | The evolution strategies of §5.7, with their costs |
 | `brake://config` | The resolved `brake.toml`, or a note that there is none |
 
 `brake://rules` is generated from `rules/catalogue.rs`, exactly as
 `docs/rules.md` is. Three renderings of one source, and a test already fails if
 the generated document drifts.
 
+`brake://strategies` exists so an agent can read the techniques *before* it has
+broken anything. An agent that knows `expand-then-contract` while drafting is
+more useful than one told about it afterwards, and this is the cheapest place
+the whole interface earns its keep.
+
 **One prompt**, `review-api-change`: takes a format and two documents, and
-returns a message pre-loaded with the findings and their rationale. The prompt
-exists so the *framing* is brake's rather than the agent's — the difference
-between "here are some warnings" and "here is what a consumer of this API
-experiences" is most of the value.
+returns a message pre-loaded with the findings, their rationale, and the
+applicable strategies. The prompt exists so the *framing* is brake's rather
+than the agent's — the difference between "here are some warnings" and "here is
+what a consumer of this API experiences, and here are three ways to give them
+what you want without that" is most of the value.
 
 ---
 
@@ -312,11 +344,12 @@ as the CLI path, because the guarantees are the tool's and not the CLI's.
 1. **Should a `propose_migration` tool exist?** For a mechanical break there is
    often a mechanical fix — a removed field becomes a deprecated one, a new
    required parameter becomes optional with a default. brake could emit the
-   safe form of the change rather than describing it. Against: it is a source
-   transformation, which is a materially larger capability than "reads files
-   and reports", and §2 draws the line at not generating advice. The rationale
-   text already carries the migration in prose. **Deferred**, and it should
-   stay deferred until an agent demonstrably cannot act on the prose.
+   safe form rather than describing it. Against: it is a source transformation,
+   materially larger than "reads files and reports", and a new class of output
+   that can be wrong. **Deferred**, and the bar for revisiting is now concrete:
+   the `remediation` array names the strategy and its cost, so the question is
+   whether an agent handed that can produce the edit. If it can, the tool is
+   redundant; if it cannot, that is evidence rather than speculation.
 2. **Should `check_change` accept a diff instead of a full document?** Cheaper
    for a large specification, and it would let the tool answer without the
    agent holding the whole file. But applying a patch to produce the head

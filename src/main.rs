@@ -254,14 +254,42 @@ fn explain(rule: Option<&str>) -> Result<ExitCode, String> {
     };
 
     println!(
-        "{}\n\nseverity:      {}\nfires from:    {}\n\n{}\n\n{}\n\n{}",
+        "{}\n\nseverity:      {}\nfires from:    {}\n\n{}\n\n{}",
         definition.id,
         format!("{:?}", definition.severity).to_lowercase(),
         level_name(definition.level),
         definition.summary,
         definition.explanation,
-        definition.help_uri(),
     );
+
+    // The ways out, generic here because there is no finding to bind them to.
+    // A finding renders the same strategies with its own field named.
+    let remedies: Vec<_> = definition
+        .remedies
+        .iter()
+        .filter_map(|id| brake::rules::strategies::lookup(id))
+        .collect();
+    if !remedies.is_empty() {
+        println!("\nways to make the change safely:");
+        for strategy in remedies {
+            println!(
+                "  {}\n    {}\n    costs: {}",
+                strategy.id,
+                strategy
+                    .summary
+                    .replace("{subject}", "the field")
+                    .replace("{endpoint}", "the endpoint"),
+                strategy.cost
+            );
+        }
+        println!(
+            "\nbrake does not choose between these: which one fits depends on whether you\n\
+             control every consumer and whether you have a version scheme, and it cannot\n\
+             see either."
+        );
+    }
+
+    println!("\n{}", definition.help_uri());
     Ok(ExitCode::from(Verdict::Clean.exit_code() as u8))
 }
 

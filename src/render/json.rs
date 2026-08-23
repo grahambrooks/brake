@@ -26,6 +26,19 @@ pub fn render(report: &Report) -> String {
                 "line": span.map(|span| span.line),
                 "column": span.map(|span| span.column),
                 "message": finding.message,
+                "subject": finding.subject,
+                // Ways to make the same change without breaking a consumer,
+                // most direct first. Structured rather than prose so a
+                // consumer can act on one without parsing English.
+                "remediation": finding
+                    .remediations()
+                    .into_iter()
+                    .map(|remediation| json!({
+                        "strategy": remediation.strategy,
+                        "summary": remediation.summary,
+                        "cost": remediation.cost,
+                    }))
+                    .collect::<Vec<_>>(),
                 "help_uri": catalogue::lookup(finding.rule_id).map(catalogue::Rule::help_uri),
             })
         })
@@ -78,6 +91,7 @@ mod tests {
                 method: Some("GET".to_owned()),
                 path: Some("/payments/{id}".to_owned()),
                 pointer: "/paths/~1payments~1{id}/get/responses/200/customer_id".to_owned(),
+                subject: Some("customer_id".to_owned()),
                 span: Some(Span::new("api/openapi.yaml", 142, 9, "/paths")),
             }],
             vec![Unavailable {
@@ -112,6 +126,27 @@ mod tests {
         assert_eq!(value["findings"][0]["contract"], "payments");
         assert_eq!(value["unavailable"][0]["contract"], "ledger");
         assert_eq!(value["contracts_checked"], 2);
+    }
+
+    #[test]
+    fn a_breaking_finding_carries_the_ways_out() {
+        let value: serde_json::Value =
+            serde_json::from_str(&render(&report())).expect("valid JSON");
+        let remediation = &value["findings"][0]["remediation"];
+
+        assert!(remediation.is_array(), "remediation must always be present");
+        let first = &remediation[0];
+        assert_eq!(first["strategy"], "deprecate-then-remove");
+        assert!(
+            first["summary"]
+                .as_str()
+                .expect("summary")
+                .contains("`customer_id`"),
+            "the strategy must name the field it is about: {first}"
+        );
+        // A list of options with no costs reads as though they are all free.
+        assert!(first["cost"].as_str().is_some_and(|cost| !cost.is_empty()));
+        assert_eq!(value["findings"][0]["subject"], "customer_id");
     }
 
     #[test]

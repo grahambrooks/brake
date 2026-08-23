@@ -4,6 +4,7 @@
 //! renderer decides how they look.
 
 pub mod catalogue;
+pub mod strategies;
 
 use crate::Severity;
 use crate::compare::{Change, ChangeKind};
@@ -23,6 +24,12 @@ pub struct Finding {
     /// A JSON pointer into the contract artifact, for SARIF fingerprints and
     /// for suppressions that target a field structurally.
     pub pointer: String,
+    /// What the finding is about, as a bare name — the field, parameter,
+    /// status or media type. `None` where the subject is the endpoint itself.
+    ///
+    /// Carried from the `Change` rather than parsed back out of `pointer`,
+    /// which for a parameter ends in its index.
+    pub subject: Option<String>,
     pub span: Option<Span>,
 }
 
@@ -31,6 +38,24 @@ impl Finding {
     #[must_use]
     pub fn endpoint(&self) -> Option<String> {
         Some(format!("{} {}", self.method.as_ref()?, self.path.as_ref()?))
+    }
+
+    /// Ways to make this change without breaking a consumer.
+    ///
+    /// Catalogued per rule and bound to this finding's subject — see
+    /// [`strategies`]. Empty for a rule where nothing is broken.
+    #[must_use]
+    pub fn remediations(&self) -> Vec<strategies::Remediation> {
+        let Some(rule) = catalogue::lookup(self.rule_id) else {
+            return Vec::new();
+        };
+        let subject = self.subject.as_deref();
+        let endpoint = self.endpoint();
+        rule.remedies
+            .iter()
+            .filter_map(|id| strategies::lookup(id))
+            .map(|strategy| strategies::bind(strategy, subject, endpoint.as_deref()))
+            .collect()
     }
 }
 
@@ -55,6 +80,7 @@ pub fn evaluate(changes: &[Change], contract: &str, level: Compatibility) -> Vec
             method: change.endpoint.as_ref().map(|key| key.method.clone()),
             path: change.endpoint.as_ref().map(|key| key.path.clone()),
             pointer: change.pointer.clone(),
+            subject: change.subject.clone(),
             span: Some(change.span.clone()),
         });
     }
@@ -148,6 +174,7 @@ pub fn contract_unreachable(contract: &str, details: &str, span: Option<Span>) -
         method: None,
         path: None,
         pointer: String::new(),
+        subject: None,
         span,
     }
 }
@@ -165,6 +192,7 @@ pub fn synthetic(rule_id: &'static str, contract: &str, message: String) -> Find
         method: None,
         path: None,
         pointer: String::new(),
+        subject: None,
         span: None,
     }
 }
@@ -320,6 +348,7 @@ mod tests {
             }),
             pointer: pointer.to_owned(),
             detail: detail.to_owned(),
+            subject: None,
             span: sample_span(),
         }
     }
@@ -333,6 +362,7 @@ mod tests {
             method: Some("GET".to_owned()),
             path: Some("/payments/{id}".to_owned()),
             pointer: pointer.to_owned(),
+            subject: None,
             span: Some(sample_span()),
         }
     }
@@ -359,6 +389,76 @@ mod tests {
         assert_eq!(findings[0].severity, Severity::Error);
         assert_eq!(findings[0].contract, "payments");
         assert!(findings[0].message.contains("GET /payments/{id}"));
+    }
+
+    #[test]
+    fn a_finding_carries_the_ways_out_bound_to_its_subject() {
+        let findings = evaluate(
+            &[Change {
+                kind: ChangeKind::ResponseFieldRemoved,
+                endpoint: Some(EndpointKey {
+                    method: "GET".to_owned(),
+                    path: "/payments/{id}".to_owned(),
+                }),
+                pointer: "/paths/~1payments/get/responses/200/customer_id".to_owned(),
+                detail: "field `customer_id`".to_owned(),
+                subject: Some("customer_id".to_owned()),
+                span: sample_span(),
+            }],
+            "payments",
+            Compatibility::WireJson,
+        );
+
+        let remediations = findings[0].remediations();
+        assert_eq!(remediations.len(), 3);
+        assert_eq!(remediations[0].strategy, "deprecate-then-remove");
+        assert!(
+            remediations[0].summary.contains("`customer_id`"),
+            "the strategy must name the field: {}",
+            remediations[0].summary
+        );
+        assert!(
+            remediations[2].summary.contains("`GET /payments/{id}`"),
+            "and the endpoint where that is what it is about: {}",
+            remediations[2].summary
+        );
+    }
+
+    #[test]
+    fn a_purely_additive_finding_suggests_nothing() {
+        let findings = evaluate(
+            &[change(
+                ChangeKind::ResponseFieldAdded,
+                "field `extra`",
+                "/extra",
+            )],
+            "payments",
+            Compatibility::Strict,
+        );
+        assert!(
+            findings[0].remediations().is_empty(),
+            "nothing was broken, so there is nothing to route around"
+        );
+    }
+
+    #[test]
+    fn a_subjectless_finding_still_reads_as_a_sentence() {
+        let findings = evaluate(
+            &[change(ChangeKind::EndpointRemoved, "", "/paths/~1p/get")],
+            "payments",
+            Compatibility::Wire,
+        );
+        for remediation in findings[0].remediations() {
+            // `{id}` in a path template is not a placeholder; the two
+            // named ones are.
+            assert!(
+                !remediation.summary.contains("{subject}")
+                    && !remediation.summary.contains("{endpoint}")
+                    && !remediation.summary.contains("``"),
+                "unbound placeholder or empty backticks: {}",
+                remediation.summary
+            );
+        }
     }
 
     #[test]
