@@ -1,0 +1,48 @@
+src/contract/proto.rs
+  s_c2a12af0e191ee::t_053a77ad0a7a8c 11
+src/compare/mod.rs
+  s_c2a12af0e191ee::t_f3636eebc8c032 130-137,143
+  s_c2a12af0e191ee::t_8f833f446e930f 324,381,435,558-573
+deny.toml
+  s_c2a12af0e191ee::t_3023e9955cf41d 1-36
+tests/diagnostics.rs
+  s_c2a12af0e191ee::t_6921a12514ccc4 168,170-173,181-187
+  s_c2a12af0e191ee::t_882cb039d28ddc 169,174-180,188-207,217
+  s_c2a12af0e191ee::t_6df550cd926ac6 1-167,208-216,218-225
+.github/workflows/build.yml
+  s_c2a12af0e191ee::t_3023e9955cf41d 59-94
+tests/snapshots/diagnostics__json_response_field_removed.snap
+  s_c2a12af0e191ee::t_8cba4c9977eb63 1-36
+tests/snapshots/diagnostics__levels.snap
+  s_c2a12af0e191ee::t_21396770fe7c06 1-21
+tests/snapshots/diagnostics__sarif_response_field_removed.snap
+  s_c2a12af0e191ee::t_fdc9517264e833 1-110
+tests/snapshots/diagnostics__text_clean.snap
+  s_c2a12af0e191ee::t_088c50272d07fb 1-5
+tests/snapshots/diagnostics__text_contract_partial.snap
+  s_c2a12af0e191ee::t_744a9fd26ebf00 1-25
+tests/snapshots/diagnostics__text_response_field_removed.snap
+  s_c2a12af0e191ee::t_644d0d72070187 1-25
+tests/snapshots/diagnostics__text_tool_failure.snap
+  s_c2a12af0e191ee::t_fa48fe69f451eb 1-6
+.gitignore
+  s_c2a12af0e191ee::t_f9f55e95ce690d 5-6
+Cargo.lock
+  s_c2a12af0e191ee::t_44b34ee25d8c60 800,802,841,843,854,856,889,891,902,904,1092,1094,1363,1365,1375,1377
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.23",
+  "base_commit_sha": "1b6b45b8f4ec4205ffd56e83a80ecc264e5b912d",
+  "prompts": {},
+  "sessions": {
+    "s_c2a12af0e191ee": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "067962c6-28a5-4d87-b17d-c8ed040f755d",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Graham Brooks <graham@grahambrooks.com>"
+    }
+  }
+}

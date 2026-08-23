@@ -1,0 +1,30 @@
+design/01-thesis.md
+  s_c2a12af0e191ee::t_95cd2cb282fbb2 155-159,184-185
+design/README.md
+  s_c2a12af0e191ee::t_95cd2cb282fbb2 19,23-28
+design/02-contract-gates.md
+  s_c2a12af0e191ee::t_95cd2cb282fbb2 12-15
+design/03-implementation-plan.md
+  s_c2a12af0e191ee::t_e8384cf3fcb3ad 118,267-284
+  s_c2a12af0e191ee::t_347be391bf0847 285
+README.md
+  s_c2a12af0e191ee::t_e8384cf3fcb3ad 142-152
+design/04-mcp-interface.md
+  s_c2a12af0e191ee::t_19e69c8c90ee7e 1-332
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.23",
+  "base_commit_sha": "5b9efa85ffb237a7b4dabb166949d2a0d4cbd6c7",
+  "prompts": {},
+  "sessions": {
+    "s_c2a12af0e191ee": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "067962c6-28a5-4d87-b17d-c8ed040f755d",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Graham Brooks <graham@grahambrooks.com>"
+    }
+  }
+}

@@ -1,0 +1,60 @@
+design/02-contract-gates.md
+  s_c2a12af0e191ee::t_1bad8c4c1e847c 3-7
+tests/cli.rs
+  s_c2a12af0e191ee::t_241acb7a30c011 1-183,188-203,208-211,216-235,240-408,428-478
+  s_c2a12af0e191ee::t_b058aa1763e22d 184-187,204-207,212-215,236-239,413-416
+  s_c2a12af0e191ee::t_8f1cabaada2367 409-412,417-427
+tests/self_defence.rs
+  s_c2a12af0e191ee::t_b058aa1763e22d 137-144,375-377,438-444,515-518
+  s_c2a12af0e191ee::t_de3b66689ed38b 1-136,145-374,378-437,445-514,519-536
+src/check.rs
+  s_c2a12af0e191ee::t_5b82e89695c1da 764-793
+  s_c2a12af0e191ee::t_1d0fec9651dba5 139-148
+  s_c2a12af0e191ee::t_a47ee6372fd728 763
+tests/docs_match_the_catalogue.rs
+  s_c2a12af0e191ee::t_dfbfa10ca28058 1-46
+brake.toml
+  s_c2a12af0e191ee::t_5962118ea97422 1-15
+src/rules/catalogue.rs
+  s_c2a12af0e191ee::t_416d1e92f4fe45 413-420,425,437-478
+  s_c2a12af0e191ee::t_1d0fec9651dba5 348-355
+  s_c2a12af0e191ee::t_b2aa76237fd3c7 421-424,426-436
+  s_c2a12af0e191ee::t_9963518d8f2083 346-347
+docs/rules.md
+  s_c2a12af0e191ee::t_244c60b57dd387 44,311-318
+  s_c2a12af0e191ee::t_e71d3b8b8ec368 1-2,4,6,8,10-43,45-310,319-334
+  s_c2a12af0e191ee::t_b2aa76237fd3c7 3,5,7,9
+CLAUDE.md
+  s_c2a12af0e191ee::t_1bad8c4c1e847c 24-42
+.pre-commit-hooks.yaml
+  s_c2a12af0e191ee::t_5962118ea97422 1-31
+api/payments-openapi.yaml
+  s_c2a12af0e191ee::t_5962118ea97422 1-67
+Makefile
+  s_c2a12af0e191ee::t_05413da0594b54 27-28,50-58
+  s_c2a12af0e191ee::t_294c668c90b5f9 59
+src/baseline.rs
+  s_c2a12af0e191ee::t_0d614376b6fed5 156-160,162,197-205
+README.md
+  s_c2a12af0e191ee::t_0a525fc29aa253 17-18,21,23-29,57-59,63-124
+design/01-thesis.md
+  s_c2a12af0e191ee::t_1bad8c4c1e847c 3-6
+design/03-implementation-plan.md
+  s_c2a12af0e191ee::t_423e6641cb7075 132,154,178,192,204,214,221-239
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.23",
+  "base_commit_sha": "7959225402c55f9a31bab910e31bab1a2181cc8e",
+  "prompts": {},
+  "sessions": {
+    "s_c2a12af0e191ee": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "067962c6-28a5-4d87-b17d-c8ed040f755d",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Graham Brooks <graham@grahambrooks.com>"
+    }
+  }
+}
