@@ -370,6 +370,122 @@ fn drift_is_unreachable_without_the_flag() {
     assert!(marker.exists(), "--drift should run the declared generator");
 }
 
+/// A repository with two releases and a break after the newer one.
+fn released_repository() -> TempDir {
+    let repo = repo(&[
+        (
+            "brake.toml",
+            "[[contract]]\nname=\"c\"\nformat=\"openapi\"\nsource=\"api/c.yaml\"\n\
+             baseline={latest-tag=\"v*\"}\n",
+        ),
+        ("api/c.yaml", SPEC),
+    ]);
+    let git = |args: &[&str]| {
+        let output = Command::new("git")
+            .args(args)
+            .current_dir(repo.path())
+            .output()
+            .expect("git should launch");
+        assert!(
+            output.status.success(),
+            "git {args:?}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    };
+    git(&["init", "-b", "main"]);
+    git(&["config", "user.name", "Brake Test"]);
+    git(&["config", "user.email", "brake@example.com"]);
+    git(&["add", "."]);
+    git(&["commit", "-m", "v9"]);
+    git(&["tag", "-a", "v9.0.0", "-m", "release nine"]);
+    git(&["commit", "--allow-empty", "-m", "v10"]);
+    git(&["tag", "v10.0.0"]);
+
+    fs::write(repo.path().join("api/c.yaml"), BROKEN).expect("write");
+    git(&["add", "."]);
+    git(&["commit", "-m", "break the api"]);
+    repo
+}
+
+#[test]
+fn a_release_baseline_gates_against_the_last_tag() {
+    let repo = released_repository();
+    let output = brake(repo.path(), &["check", "--format", "json"]);
+    assert_eq!(code(&output), 1);
+
+    let parsed: serde_json::Value = serde_json::from_str(&stdout(&output)).expect("json");
+    let file = parsed["findings"][0]["file"].as_str().expect("file");
+    assert_eq!(
+        file, "tag:v10.0.0",
+        "latest-tag must pick v10.0.0, not v9.0.0 — byte order gets this backwards"
+    );
+}
+
+#[test]
+fn the_baseline_flag_accepts_a_tag_a_glob_and_a_revision() {
+    let repo = released_repository();
+    for (flag, expected_label) in [
+        ("v9.0.0", "tag:v9.0.0"),
+        ("v10.0.0", "tag:v10.0.0"),
+        ("latest-tag:v*", "tag:v10.0.0"),
+    ] {
+        let output = brake(
+            repo.path(),
+            &["check", "--baseline", flag, "--format", "json"],
+        );
+        assert_eq!(code(&output), 1, "--baseline {flag}");
+        let parsed: serde_json::Value = serde_json::from_str(&stdout(&output)).expect("json");
+        // A `rev` override and a `tag` entry label differently; both are fine
+        // so long as the flag resolved to the right commit.
+        let file = parsed["findings"][0]["file"].as_str().expect("file");
+        assert!(
+            file.ends_with(expected_label.trim_start_matches("tag:")),
+            "--baseline {flag} resolved to {file}, wanted {expected_label}"
+        );
+    }
+}
+
+#[test]
+fn a_release_baseline_with_no_matching_tag_is_a_tool_failure() {
+    let repo = released_repository();
+    fs::write(
+        repo.path().join("brake.toml"),
+        "[[contract]]\nname=\"c\"\nformat=\"openapi\"\nsource=\"api/c.yaml\"\n\
+         baseline={latest-tag=\"release-*\"}\n",
+    )
+    .expect("write");
+
+    let output = brake(repo.path(), &["check", "--format", "text"]);
+    assert_eq!(
+        code(&output),
+        2,
+        "an unresolvable release baseline must not report clean"
+    );
+    assert!(
+        stdout(&output).contains("fetch-depth"),
+        "the message should name the usual cause:\n{}",
+        stdout(&output)
+    );
+}
+
+#[test]
+fn a_baseline_setting_two_shapes_at_once_is_rejected() {
+    let repo = repo(&[
+        (
+            "brake.toml",
+            "[[contract]]\nname=\"c\"\nformat=\"openapi\"\nsource=\"api/c.yaml\"\n\
+             baseline={tag=\"v1.0.0\", rev=\"abc123\"}\n",
+        ),
+        ("api/c.yaml", SPEC),
+    ]);
+    let output = brake(repo.path(), &["check"]);
+    assert_eq!(code(&output), 2);
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("several"),
+        "an ambiguous baseline must say so rather than picking one"
+    );
+}
+
 #[test]
 fn version_prints_the_calver() {
     let here = tempdir().expect("tempdir");

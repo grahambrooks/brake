@@ -64,16 +64,83 @@ expires = "2026-09-01"
 
 ### 2.1 Baseline resolution
 
+Six shapes, in two families. The first family answers *"is this change safe to
+merge?"*; the second answers *"has the API broken since we shipped?"*.
+
 ```toml
 baseline = { file = "api/openapi.baseline.yaml" }        # a checked-in copy
-baseline = { git = "origin/main:api/openapi.yaml" }      # a ref and a path
 baseline = { git-merge-base = "origin/main" }            # merge-base of HEAD and the ref
+baseline = { tag = "v1.2.0" }                            # a named release tag
+baseline = { latest-tag = "v*" }                         # the newest matching tag HEAD descends from
+baseline = { rev = "8743cba" }                           # any revision — commit, branch, tag
+baseline = { git = "origin/main:api/openapi.yaml" }      # a ref and an explicit path
 ```
 
-`git-merge-base` is the recommended default and the reason is not stylistic: it
-does not fire on changes another pull request already landed, and the merge-base
-advances on every merge, so history is forgiven automatically. It is the ratchet,
-without a state file.
+`tag`, `latest-tag`, `rev` and `git-merge-base` all read `source` from the
+resolved commit's tree. **`git` is the only one that takes a path**, and that is
+the reason to prefer the others: a path written twice is a path that can drift.
+A contract whose `source` moved while its `git` spec still names the old path
+compares two different files and reports the difference as a breaking change,
+which is a false positive that looks exactly like a true one. `git` remains for
+the case the others cannot express — reading a contract from a path it no longer
+occupies — and nothing else should use it.
+
+**`git-merge-base` is the recommended default for `check`** and the reason is
+not stylistic: it does not fire on changes another pull request already landed,
+and the merge-base advances on every merge, so history is forgiven
+automatically. It is the ratchet, without a state file.
+
+#### Version-controlled baselines
+
+`tag`, `latest-tag` and `rev` are the release-gating family, and they answer a
+question the merge-base cannot: **has the published API broken since the last
+version consumers actually have?** A merge-base baseline forgives everything
+already on `main`, which is correct for a commit gate and wrong for a release
+gate — a break merged three weeks ago is still a break for anyone upgrading from
+the last tag.
+
+```toml
+[[contract]]
+name = "payments"
+source = "api/payments-openapi.yaml"
+# Day to day: did this change break anything not already broken?
+baseline = { git-merge-base = "origin/main" }
+
+[[contract]]
+name = "payments-released"
+source = "api/payments-openapi.yaml"
+compatibility = "surface"
+# At release time: is the whole delta since v1.x safe for a consumer to upgrade
+# into? Both entries gate the same artifact, and they are meant to.
+baseline = { latest-tag = "v*" }
+```
+
+Two contracts over one artifact is the intended shape. They are different
+questions with different answers, and a tool that only lets you ask one of them
+forces a team to pick.
+
+**`latest-tag` resolves without config churn.** Naming a tag literally means
+editing `brake.toml` on every release, and a version somebody forgot to bump is
+a gate quietly comparing against ancient history. The resolution is:
+
+1. Take every tag matching the glob.
+2. Order them by version, comparing numeric runs numerically so `v10.0.0`
+   sorts above `v9.0.0` — byte order gets this backwards, and CalVer
+   (`2026.8.1`) needs the same treatment.
+3. Walk from the newest down, and take the first tag **HEAD descends from**.
+
+Step 3 is what makes the answer meaningful on a branch. A tag cut on an
+unrelated release branch is not a version this commit evolved from, and
+comparing against it reports a "break" that is really a divergence. Restricting
+to ancestors also makes the result stable under a fetch that brings in tags from
+elsewhere.
+
+**The determinism caveat, stated rather than hidden.** `latest-tag` reads the
+tags present in the local repository, and a shallow or `--no-tags` clone has
+none. That is the one place where identical file contents can produce a
+different verdict on two machines, so it is a reported failure rather than a
+silent one: no matching ancestor tag is `contract-unreachable`, never a clean
+result. CI must fetch tags — `actions/checkout` needs `fetch-depth: 0`.
 
 Resolution is via `gix`, in-process. `brake` never shells out to `git`.
 

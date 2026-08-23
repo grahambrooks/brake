@@ -99,6 +99,34 @@ only the contracts among them. That scoping is the ratchet: a repository with
 two hundred existing findings still passes a commit that does not add a
 two-hundred-and-first, with no state file and nothing to regenerate.
 
+## Gating a release, not just a commit
+
+`git-merge-base` forgives anything already on the trunk, which is what makes
+the commit gate adoptable — and wrong for a release. A break merged three weeks
+ago is still a break for anyone upgrading from the last tag.
+
+```toml
+[[contract]]
+name = "payments"
+source = "api/payments-openapi.yaml"
+baseline = { git-merge-base = "origin/main" }   # did *this change* break anything?
+
+[[contract]]
+name = "payments-released"
+source = "api/payments-openapi.yaml"
+compatibility = "surface"
+baseline = { latest-tag = "v*" }                # is the delta since the last release safe?
+```
+
+Two contracts over one artifact is the intended shape: they ask different
+questions and deserve different answers. `latest-tag` resolves the newest tag
+matching the glob that HEAD descends from, so it needs no editing at release
+time. `tag = "v1.2.0"` and `rev = "8743cba"` pin an exact version.
+
+Tags live in git, so CI must fetch them — `actions/checkout` needs
+`fetch-depth: 0`. A pattern that matches nothing is reported as a tool failure,
+never as a clean result.
+
 ## Compatibility levels
 
 Each level is a strict superset of the one below, so a project can start loose

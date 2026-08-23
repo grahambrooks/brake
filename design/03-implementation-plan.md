@@ -218,6 +218,31 @@ date passes.
 **Done when:** a fixture whose generator output diverges from the committed
 artifact fails, and the subprocess is provably not reachable without the flag.
 
+### M9 — Version-controlled baselines ✅
+
+`tag`, `latest-tag` and `rev`, which answer "has the published API broken since
+we shipped?" rather than "is this change safe to merge?". None of them repeats
+the contract path — that comes from `source` — which closes the one way the
+existing `git = "ref:path"` shape could silently compare two unrelated files.
+
+The traps, each with a test:
+
+- **Annotated tags are tag objects, not commits.** Both kinds must peel.
+- **Byte ordering ranks `v9.0.0` above `v10.0.0`**, which would gate a 10.x
+  release against a 9.x baseline. Numeric runs compare numerically, and CalVer
+  needs the same treatment.
+- **A prerelease is not the release.** `v1.0.0-rc1` sorts below `v1.0.0`, while
+  `v1.0.0.1` sorts above it — the separator `.` is itself a text run, so "text
+  or number" is not the distinction that matters.
+- **A tag on an unrelated branch is not a version HEAD evolved from.**
+  `latest-tag` walks newest-first and takes the first ancestor.
+- **A shallow clone has no tags**, which is the one place identical file
+  contents can produce different verdicts on two machines. Reported as
+  unavailable, naming `fetch-depth`, never as clean.
+
+**Done when:** a repository tagged `v9.0.0` and `v10.0.0` with a break after the
+newer tag fails against `latest-tag = "v*"` and names `v10.0.0` as the baseline.
+
 ### M7 — Protobuf ✅, M8 — GraphQL ✅
 
 Each is a new ingester against an unchanged comparator. The §2 bet held: no

@@ -81,8 +81,26 @@ pub enum ContractFormat {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Baseline {
     File(PathBuf),
-    Git { spec: String },
-    GitMergeBase { reference: String },
+    /// A ref and an explicit path. The only shape that takes a path, and the
+    /// reason to prefer the others — see `design/02-contract-gates.md` §2.1.
+    Git {
+        spec: String,
+    },
+    GitMergeBase {
+        reference: String,
+    },
+    /// A named release tag. The path comes from `source`.
+    Tag {
+        name: String,
+    },
+    /// The newest tag matching this glob that HEAD descends from.
+    LatestTag {
+        pattern: String,
+    },
+    /// Any revision — a commit, a branch, a tag.
+    Rev {
+        rev: String,
+    },
 }
 
 impl Baseline {
@@ -91,7 +109,24 @@ impl Baseline {
             Self::File(_) => "file",
             Self::Git { .. } => "git",
             Self::GitMergeBase { .. } => "git-merge-base",
+            Self::Tag { .. } => "tag",
+            Self::LatestTag { .. } => "latest-tag",
+            Self::Rev { .. } => "rev",
         }
+    }
+
+    /// Does this baseline answer "has the published API broken since we
+    /// shipped?" rather than "is this change safe to merge?"
+    ///
+    /// The distinction is not cosmetic: a release baseline does not forgive
+    /// what is already on the trunk, so it is the wrong default for a commit
+    /// hook and the right one for a release gate.
+    #[must_use]
+    pub fn is_release_baseline(&self) -> bool {
+        matches!(
+            self,
+            Self::Tag { .. } | Self::LatestTag { .. } | Self::Rev { .. }
+        )
     }
 }
 
@@ -237,23 +272,42 @@ struct RawBaseline {
     git: Option<String>,
     #[serde(rename = "git-merge-base")]
     git_merge_base: Option<String>,
+    tag: Option<String>,
+    #[serde(rename = "latest-tag")]
+    latest_tag: Option<String>,
+    rev: Option<String>,
 }
 
 impl RawBaseline {
     fn validate(self, context: &str) -> Result<Baseline, ConfigError> {
-        let mut set = 0usize;
-        if self.file.is_some() {
+        // Table-driven so adding a shape cannot forget the arity check, which
+        // is what stops `{ tag = "v1", rev = "abc" }` from silently picking one.
+        let candidates: [(&str, Option<String>); 5] = [
+            ("git", self.git),
+            ("git-merge-base", self.git_merge_base),
+            ("tag", self.tag),
+            ("latest-tag", self.latest_tag),
+            ("rev", self.rev),
+        ];
+
+        let mut chosen: Option<(&str, String)> = None;
+        let mut set = usize::from(self.file.is_some());
+        for (key, value) in candidates {
+            let Some(value) = value else { continue };
             set += 1;
+            if value.trim().is_empty() {
+                return Err(ConfigError::Validation(format!(
+                    "{context} baseline `{key}` cannot be empty"
+                )));
+            }
+            chosen.get_or_insert((key, value));
         }
-        if self.git.is_some() {
-            set += 1;
-        }
-        if self.git_merge_base.is_some() {
-            set += 1;
-        }
+
         if set != 1 {
             return Err(ConfigError::Validation(format!(
-                "{context} baseline must set exactly one of `file`, `git`, or `git-merge-base`"
+                "{context} baseline must set exactly one of `file`, `git`, `git-merge-base`, \
+                 `tag`, `latest-tag`, or `rev`{}",
+                if set > 1 { ", and it sets several" } else { "" }
             )));
         }
 
@@ -265,26 +319,16 @@ impl RawBaseline {
             }
             return Ok(Baseline::File(file));
         }
-        if let Some(git) = self.git {
-            if git.trim().is_empty() {
-                return Err(ConfigError::Validation(format!(
-                    "{context} baseline git spec cannot be empty"
-                )));
-            }
-            return Ok(Baseline::Git { spec: git });
-        }
-        if let Some(reference) = self.git_merge_base {
-            if reference.trim().is_empty() {
-                return Err(ConfigError::Validation(format!(
-                    "{context} baseline git-merge-base reference cannot be empty"
-                )));
-            }
-            return Ok(Baseline::GitMergeBase { reference });
-        }
 
-        Err(ConfigError::Validation(format!(
-            "{context} baseline must not be empty"
-        )))
+        let (key, value) = chosen.expect("exactly one is set and it is not `file`");
+        Ok(match key {
+            "git" => Baseline::Git { spec: value },
+            "git-merge-base" => Baseline::GitMergeBase { reference: value },
+            "tag" => Baseline::Tag { name: value },
+            "latest-tag" => Baseline::LatestTag { pattern: value },
+            "rev" => Baseline::Rev { rev: value },
+            other => unreachable!("unhandled baseline key `{other}`"),
+        })
     }
 }
 

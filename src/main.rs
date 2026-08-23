@@ -47,8 +47,10 @@ enum Command {
         /// Check only these contracts, by name. Repeatable.
         #[arg(long)]
         contract: Vec<String>,
-        /// Override every contract's baseline with this git ref and path,
-        /// for example `origin/main:api/openapi.yaml`.
+        /// Override every contract's baseline.
+        ///
+        /// A revision (`v1.2.0`, `origin/main`, `8743cba`), a tag glob
+        /// (`latest-tag:v*`), or the explicit `ref:path` form.
         #[arg(long)]
         baseline: Option<String>,
         /// Override the compatibility level: wire, wire-json, surface, strict.
@@ -109,7 +111,7 @@ enum Command {
         /// Report only these contracts, by name. Repeatable.
         #[arg(long)]
         contract: Vec<String>,
-        /// Override every contract's baseline with this git ref and path.
+        /// Override every contract's baseline. See `brake check --help`.
         #[arg(long)]
         baseline: Option<String>,
         /// Output format: auto, text, json, sarif.
@@ -164,7 +166,7 @@ fn run(cli: Cli) -> Result<ExitCode, String> {
                 // a suppression is dead.
                 report_stale: matches!(scope, Scope::All),
                 compatibility: compatibility.as_deref().map(parse_level).transpose()?,
-                baseline: baseline.map(|spec| Baseline::Git { spec }),
+                baseline: baseline.as_deref().map(parse_baseline),
                 only: contract,
             };
 
@@ -219,7 +221,7 @@ fn run(cli: Cli) -> Result<ExitCode, String> {
                 // Report everything, including additive changes, because the
                 // point is a complete description of the change.
                 compatibility: Some(Compatibility::Strict),
-                baseline: baseline.map(|spec| Baseline::Git { spec }),
+                baseline: baseline.as_deref().map(parse_baseline),
                 only: contract,
             };
 
@@ -308,6 +310,36 @@ fn emit(report: &Report, requested_format: &str) -> Result<(), String> {
     };
     print!("{rendered}");
     Ok(())
+}
+
+/// Interpret a `--baseline` value.
+///
+/// The flag is a convenience over `brake.toml`, so it accepts the same ideas
+/// in one string: a bare revision is the common case, `latest-tag:` names the
+/// glob form, and anything containing a `:` after a known ref is the explicit
+/// `ref:path` shape.
+fn parse_baseline(input: &str) -> Baseline {
+    let input = input.trim();
+    if let Some(pattern) = input.strip_prefix("latest-tag:") {
+        return Baseline::LatestTag {
+            pattern: pattern.to_owned(),
+        };
+    }
+    if let Some(reference) = input.strip_prefix("merge-base:") {
+        return Baseline::GitMergeBase {
+            reference: reference.to_owned(),
+        };
+    }
+    // `ref:path` is distinguishable because a path needs a separator; a bare
+    // revision never contains one.
+    if input.contains(':') {
+        return Baseline::Git {
+            spec: input.to_owned(),
+        };
+    }
+    Baseline::Rev {
+        rev: input.to_owned(),
+    }
 }
 
 fn parse_severity(input: &str) -> Result<Severity, String> {
@@ -426,6 +458,26 @@ mod tests {
             "today() produced an unparseable date: {today}"
         );
         assert_eq!(today.len(), 10, "{today}");
+    }
+
+    #[test]
+    fn baseline_flag_reads_the_shapes_it_documents() {
+        assert!(matches!(
+            parse_baseline("v1.2.0"),
+            Baseline::Rev { rev } if rev == "v1.2.0"
+        ));
+        assert!(matches!(
+            parse_baseline("latest-tag:v*"),
+            Baseline::LatestTag { pattern } if pattern == "v*"
+        ));
+        assert!(matches!(
+            parse_baseline("merge-base:origin/main"),
+            Baseline::GitMergeBase { reference } if reference == "origin/main"
+        ));
+        assert!(matches!(
+            parse_baseline("origin/main:api/openapi.yaml"),
+            Baseline::Git { spec } if spec == "origin/main:api/openapi.yaml"
+        ));
     }
 
     #[test]
