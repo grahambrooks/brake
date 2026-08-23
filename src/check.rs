@@ -589,13 +589,13 @@ paths:
         repo
     }
 
-    /// A shell command that creates `path`, in whichever shell `--drift` uses.
+    /// A shell command that creates `path` as a marker, in whichever shell
+    /// `--drift` uses.
+    ///
+    /// `mkdir` rather than `touch`: it is a builtin in both `sh` and `cmd`,
+    /// needs no redirection, and depends on nothing being on PATH.
     fn create_file_command(path: &std::path::Path) -> String {
-        if cfg!(windows) {
-            format!("type nul > \"{}\"", path.display())
-        } else {
-            format!("touch \"{}\"", path.display())
-        }
+        format!("mkdir \"{}\"", path.display())
     }
 
     fn run_git(repo: &Path, args: &[&str]) {

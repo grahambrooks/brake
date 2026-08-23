@@ -40,20 +40,19 @@ fn repo(files: &[(&str, &str)]) -> TempDir {
     repo
 }
 
-/// A shell command that creates `path`, in whichever shell `--drift` uses.
+/// A shell command that creates `path` as a marker, in whichever shell
+/// `--drift` uses.
 ///
-/// `touch` is not a cmd builtin, so on Windows this guard would otherwise be
-/// half-vacuous: the "did not run" assertion passes for the wrong reason and
-/// the "did run" assertion fails.
+/// `mkdir` rather than `touch`: it is a builtin in both `sh` and `cmd`, needs
+/// no redirection, and depends on nothing being on PATH. `touch` is not a cmd
+/// builtin, which made this guard half-vacuous on Windows — the "did not run"
+/// assertion passed because the command failed rather than because brake
+/// refused it.
 ///
 /// The quotes are backslash-escaped because the result is embedded in a TOML
 /// string in brake.toml, where a bare quote would end it.
 fn create_file_command(path: &Path) -> String {
-    if cfg!(windows) {
-        format!("type nul > \\\"{}\\\"", path.display())
-    } else {
-        format!("touch \\\"{}\\\"", path.display())
-    }
+    format!("mkdir \\\"{}\\\"", path.display())
 }
 
 fn brake(cwd: &Path, args: &[&str]) -> Output {
