@@ -1,0 +1,24 @@
+.github/workflows/build.yml
+  s_c2a12af0e191ee::t_f1f7711aa20ea6 47
+tests/toolchain_pins.rs
+  s_c2a12af0e191ee::t_7af17175f4c758 52-56,62-65,68-69,71,76,79-81,83-87,89
+  s_c2a12af0e191ee::t_d8699b22551c16 1-51,57-61,66-67,70,72-75,77-78,82,88,90-93
+Cargo.lock
+  s_c2a12af0e191ee::t_6efd5ad9fb5b82 338,340,970,972,1045,1047,1194,1196,1237,1239,1259,1261,1341,1343
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.23",
+  "base_commit_sha": "9d27306b0c6b366af4477388d81e72b6a3d9e46e",
+  "prompts": {},
+  "sessions": {
+    "s_c2a12af0e191ee": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "067962c6-28a5-4d87-b17d-c8ed040f755d",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Graham Brooks <graham@grahambrooks.com>"
+    }
+  }
+}
