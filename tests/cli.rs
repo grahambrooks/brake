@@ -40,6 +40,22 @@ fn repo(files: &[(&str, &str)]) -> TempDir {
     repo
 }
 
+/// A shell command that creates `path`, in whichever shell `--drift` uses.
+///
+/// `touch` is not a cmd builtin, so on Windows this guard would otherwise be
+/// half-vacuous: the "did not run" assertion passes for the wrong reason and
+/// the "did run" assertion fails.
+///
+/// The quotes are backslash-escaped because the result is embedded in a TOML
+/// string in brake.toml, where a bare quote would end it.
+fn create_file_command(path: &Path) -> String {
+    if cfg!(windows) {
+        format!("type nul > \\\"{}\\\"", path.display())
+    } else {
+        format!("touch \\\"{}\\\"", path.display())
+    }
+}
+
 fn brake(cwd: &Path, args: &[&str]) -> Output {
     Command::new(BRAKE)
         .args(args)
@@ -352,8 +368,8 @@ fn drift_is_unreachable_without_the_flag() {
             &format!(
                 "[[contract]]\nname=\"c\"\nformat=\"openapi\"\nsource=\"api/c.yaml\"\n\
                  baseline={{file=\"api/c.baseline.yaml\"}}\n\
-                 [contract.generated]\ncommand = \"touch {}\"\n",
-                marker.display()
+                 [contract.generated]\ncommand = \"{}\"\n",
+                create_file_command(&marker)
             ),
         ),
         ("api/c.baseline.yaml", SPEC),
