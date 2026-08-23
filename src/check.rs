@@ -372,6 +372,32 @@ fn select_since<'a>(
     Ok(in_scope)
 }
 
+/// Build the shell invocation for a declared generator.
+///
+/// On Windows the command must be appended *verbatim*. Rust escapes arguments
+/// using MSVC's rules, and `cmd.exe` does not parse those — so a command
+/// containing quotes, which any path with a space needs, reaches cmd mangled
+/// and fails. `raw_arg` is the documented way to hand cmd a command line
+/// unaltered, and without it `--drift` is broken on Windows for anyone whose
+/// generator quotes a path.
+fn shell_command(command: &str) -> Command {
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+
+        let mut builder = Command::new("cmd");
+        builder.arg("/C");
+        builder.raw_arg(command);
+        builder
+    }
+    #[cfg(not(windows))]
+    {
+        let mut builder = Command::new("sh");
+        builder.arg("-c").arg(command);
+        builder
+    }
+}
+
 /// Run a declared generator and compare its stdout to the committed artifact.
 ///
 /// `Err` means the generator could not be run at all, which is unavailable
@@ -388,11 +414,7 @@ fn run_drift(
     let stdout_file = fs::File::create(&stdout_path)
         .map_err(|error| format!("failed to capture generator output: {error}"))?;
 
-    let shell = if cfg!(windows) { "cmd" } else { "sh" };
-    let shell_flag = if cfg!(windows) { "/C" } else { "-c" };
-    let mut child = Command::new(shell)
-        .arg(shell_flag)
-        .arg(command)
+    let mut child = shell_command(command)
         .current_dir(temp.path())
         .env("BRAKE_REPO_ROOT", repo_root)
         // Writing stdout to a file rather than a pipe means a generator that
