@@ -1,0 +1,19 @@
+tests/docs_match_the_catalogue.rs
+  s_c2a12af0e191ee::t_d55264e7e798d0 24-27,30-31
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.23",
+  "base_commit_sha": "f99e7c2240d95481cb7953d455fb1279c279726c",
+  "prompts": {},
+  "sessions": {
+    "s_c2a12af0e191ee": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "067962c6-28a5-4d87-b17d-c8ed040f755d",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Graham Brooks <graham@grahambrooks.com>"
+    }
+  }
+}
