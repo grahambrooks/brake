@@ -1,0 +1,53 @@
+src/contract/proto.rs
+  s_c2a12af0e191ee::t_cba41b7e7e30c6 277-281
+src/contract/openapi.rs
+  s_c2a12af0e191ee::t_cba41b7e7e30c6 676-678,688
+src/contract/graphql.rs
+  s_c2a12af0e191ee::t_6686088f7be11c 76,90
+  s_c2a12af0e191ee::t_09dab8d8627d68 78-83,92-97,555-560,565-566,571-572
+  s_c2a12af0e191ee::t_563c6fb7eb67e1 430-432,468
+tests/cli.rs
+  s_c2a12af0e191ee::t_734219e855baac 924-926,928-931,944-945,974-977,987-991
+  s_c2a12af0e191ee::t_01184fe0a643eb 900-923,927,932-939,942-943,946-973,978-986,992-996
+  s_c2a12af0e191ee::t_80336b9c2c7a79 940-941
+src/config.rs
+  s_c2a12af0e191ee::t_199d5694b62f8b 342-367,386-387,409
+  s_c2a12af0e191ee::t_dbb0bdcf116674 418-452
+src/compare/types.rs
+  s_c2a12af0e191ee::t_6b48356480d690 1051
+  s_c2a12af0e191ee::t_171822712febe0 386
+  s_c2a12af0e191ee::t_919837c0230f4c 370,396,398,400,413,417,439
+  s_c2a12af0e191ee::t_cba41b7e7e30c6 918
+  s_c2a12af0e191ee::t_e92001797dd4b0 369,399,410,416,422,428,434,492-494,497-498,501-502,518-524,535-539,543-545,549-550,557-558
+  s_c2a12af0e191ee::t_4a5ce339850a32 11,88-130,132,136,139-142,144-157,165,350,496,570,619,662,695,720,984,986
+  s_c2a12af0e191ee::t_ef75e5233e5e80 833
+  s_c2a12af0e191ee::t_8461542fe0ddee 445-449,451-453,456-457,460-461,469-472,477-479,481,486
+  s_c2a12af0e191ee::t_4d4fb0e22adafb 371-385,387-395,856
+  s_c2a12af0e191ee::t_e0cf7ebf6924f6 534
+src/contract/mod.rs
+  s_c2a12af0e191ee::t_871922262062be 255-261,272-281
+src/compare/mod.rs
+  s_c2a12af0e191ee::t_65bd3d0ee68b0c 596,602,607-612
+tests/snapshots/diagnostics__json_response_field_removed.snap
+  s_c2a12af0e191ee::t_ecff6ec314c7b4 9,13,35,39
+tests/snapshots/diagnostics__sarif_response_field_removed.snap
+  s_c2a12af0e191ee::t_15a3d8acd81da3 19-20,57-58
+tests/snapshots/diagnostics__text_response_field_removed.snap
+  s_c2a12af0e191ee::t_ad94ed8681ff7d 6,8-9,22,24-25
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.23",
+  "base_commit_sha": "d6b739d8ce21a398e5de1d47a0be36aabce2bfe2",
+  "prompts": {},
+  "sessions": {
+    "s_c2a12af0e191ee": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "067962c6-28a5-4d87-b17d-c8ed040f755d",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Graham Brooks <graham@grahambrooks.com>"
+    }
+  }
+}
