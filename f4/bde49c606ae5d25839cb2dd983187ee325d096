@@ -1,0 +1,30 @@
+tests/release_workflow.rs
+  s_c2a12af0e191ee::t_13941272daceee 1-130
+  s_c2a12af0e191ee::t_f56eb81fce3b4b 131-133
+.github/render-formula.py
+  s_c2a12af0e191ee::t_255944492c0540 26
+  s_c2a12af0e191ee::t_8b026b307b4dea 1-25,27-100
+.github/workflows/release.yml
+  s_c2a12af0e191ee::t_384ec98e01fb20 1-2,4-12,34-36,38-42,47-213,215-218
+  s_c2a12af0e191ee::t_4cfaaf89679b14 43-46
+design/03-implementation-plan.md
+  s_c2a12af0e191ee::t_8e3e2f026e10af 347-362
+README.md
+  s_c2a12af0e191ee::t_8e3e2f026e10af 79-101
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.23",
+  "base_commit_sha": "f4bde49c606ae5d25839cb2dd983187ee325d096",
+  "prompts": {},
+  "sessions": {
+    "s_c2a12af0e191ee": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "067962c6-28a5-4d87-b17d-c8ed040f755d",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Graham Brooks <graham@grahambrooks.com>"
+    }
+  }
+}
