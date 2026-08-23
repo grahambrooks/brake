@@ -213,15 +213,21 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if git diff --quiet Formula/brake.rb; then
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          # Staged, then compared against the index. `git diff` alone reports
+          # no change for an *untracked* file, so the very first formula — the
+          # one release this most needed to work — was silently skipped while
+          # the job reported success.
+          git add Formula/brake.rb
+          if git diff --cached --quiet -- Formula/brake.rb; then
             echo "::notice::formula unchanged"
             exit 0
           fi
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add Formula/brake.rb
           git commit -m "chore(release): Homebrew formula for ${GITHUB_REF_NAME}"
           git push origin main
+          echo "::notice::committed Formula/brake.rb for ${GITHUB_REF_NAME}"
 
   publish:
     needs: [build, release, formula]
