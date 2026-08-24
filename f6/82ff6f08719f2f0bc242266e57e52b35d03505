@@ -1,0 +1,58 @@
+docs/assets/brake-logo.svg
+  s_268510cb796fab::t_6c494e0ad347ca 1-60
+docs/getting-started.md
+  s_268510cb796fab::t_ddcf14681ed8a8 1-163
+.claude/skills/brake-triage/SKILL.md
+  s_268510cb796fab::t_66e393d586c9f4 1-121
+README.md
+  s_268510cb796fab::t_5542b4e8d372ec 289,291-304
+  s_268510cb796fab::t_862659729b688f 27
+  s_268510cb796fab::t_71544be90543bb 37-38
+  s_268510cb796fab::t_23b652618f1ffd 1-2,5-11
+  s_268510cb796fab::t_3860d3dab17a67 182
+  s_268510cb796fab::t_d570fd3a068a36 253-262
+  s_268510cb796fab::t_f56f5934d6637c 12
+docs/configuration.md
+  s_268510cb796fab::t_07ac7f43bec3d5 1-58,60-95,105-224,226-233,235-244
+  s_268510cb796fab::t_b119484a622159 59,225,234
+  s_268510cb796fab::t_b780bfb745c570 96-104
+docs/README.md
+  s_268510cb796fab::t_f69133b451fdad 1-41
+.claude/skills/brake-consumer-impact/SKILL.md
+  s_268510cb796fab::t_32c8fde13a218b 1-95
+docs/consumers.md
+  s_268510cb796fab::t_80667b9bbe4b06 1-185,190-224
+  s_268510cb796fab::t_53f1d67640aa92 186-189
+.claude/skills/brake-adopt/SKILL.md
+  s_268510cb796fab::t_a0766322f09ccf 1-82,84-158
+  s_268510cb796fab::t_3860d3dab17a67 83
+CLAUDE.md
+  s_268510cb796fab::t_9f263af110128f 77-81,121-123
+docs/ci.md
+  s_268510cb796fab::t_ca2ecec6634688 66,71-73,75-77,81-84,95,97-99,101-103
+  s_268510cb796fab::t_1fbdb6ee993b66 1-22,24-65,67-70,78-80,85-94,96,104-175
+  s_268510cb796fab::t_3860d3dab17a67 23,74,100
+docs/agent-skills.md
+  s_268510cb796fab::t_323a31fa1293ab 1-64
+.claude/skills/api-compatibility/SKILL.md
+  s_268510cb796fab::t_69cebe3ccf7ee8 1-77,81-82,84-86,90-117
+  s_268510cb796fab::t_14bee0e8cc6d8e 78-80,83,87-89
+docs/mcp.md
+  s_268510cb796fab::t_83f9941756e737 1-177
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.24",
+  "base_commit_sha": "f682ff6f08719f2f0bc242266e57e52b35d03505",
+  "prompts": {},
+  "sessions": {
+    "s_268510cb796fab": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9ce2862a-1e85-48b8-9a49-c231f4fa0db2",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Graham Brooks <graham@grahambrooks.com>"
+    }
+  }
+}
