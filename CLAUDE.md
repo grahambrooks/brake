@@ -74,6 +74,11 @@ What is worth knowing before changing anything:
 - **Attribution is evidence on a finding, never a second finding.** There is no
   `consumer-break` rule, deliberately: one broken field must not produce four
   findings a developer has to reassemble.
+- **`docs/` and `.claude/skills/` state rule ids, flag names and exit-code
+  meanings.** They are prose, so nothing fails when they drift — which is
+  exactly why a change to the CLI surface, a rule id, or the meaning of an exit
+  code has to update them in the same commit. `docs/rules.md` is the exception:
+  `make docs` regenerates it and a test fails if it is stale.
 
 ## Core constraints
 
@@ -113,6 +118,9 @@ src/rules/         Change × Level → Finding. The rule catalogue
 src/demand/        Consumer declarations → Demand → the join → attribution
 src/baseline.rs    file / git / git-merge-base, via gix
 src/render/        text, json, sarif
+docs/              The prose guides; docs/rules.md alone is generated
+docs/assets/       The logo — hand-authored SVG, no font and no raster asset
+.claude/skills/    Four agent skills — see docs/agent-skills.md
 ```
 
 **Two structural rules:**

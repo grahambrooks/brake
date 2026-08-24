@@ -1,4 +1,14 @@
+<img src="docs/assets/brake-logo.svg" alt="" align="right" width="116" height="116">
+
 # brake
+
+[![build](https://github.com/grahambrooks/brake/actions/workflows/build.yml/badge.svg)](https://github.com/grahambrooks/brake/actions/workflows/build.yml)
+[![release](https://github.com/grahambrooks/brake/actions/workflows/release.yml/badge.svg)](https://github.com/grahambrooks/brake/actions/workflows/release.yml)
+[![crates.io](https://img.shields.io/crates/v/brake.svg?logo=rust)](https://crates.io/crates/brake)
+[![docs.rs](https://img.shields.io/docsrs/brake?logo=docsdotrs&label=docs.rs)](https://docs.rs/brake)
+[![MSRV](https://img.shields.io/crates/msrv/brake?logo=rust&label=MSRV)](rust-toolchain.toml)
+[![MCP](https://img.shields.io/badge/MCP-server-6E56CF)](docs/mcp.md)
+[![licence](https://img.shields.io/crates/l/brake.svg)](LICENSE)
 
 **A brake on breaking API changes.** It compares an API contract against its
 previous version and fails the commit when the change would break a consumer —
@@ -14,7 +24,7 @@ rather than reporting a clean result it cannot justify.
 ```
 $ brake check api/payments-openapi.yaml
 
-error[response-field-removed]: response field removed: field `customer_id` in `GET /payments/{id}`
+error[response-field-removed]: response field removed: response `200` at `/customer_id`: field `customer_id` in `GET /payments/{id}`
  --> api/payments-openapi.yaml:142:9
     |
 142 |         customer_id:
@@ -24,7 +34,8 @@ error[response-field-removed]: response field removed: field `customer_id` in `G
 help: three ways to make this change safely
       1. deprecate-then-remove — mark `customer_id` deprecated now and remove it
          in a later release, once consumers have had a version to migrate
-         costs: the removal waits for a deprecation window you have to observe
+         costs: the removal waits for a deprecation window you have to actually
+                observe
       2. expand-then-contract — add the replacement alongside `customer_id`, move
          readers across, and remove `customer_id` only when nothing reads it
          costs: both shapes are live at once, and the second half is easy to forget
@@ -168,7 +179,7 @@ As a pre-commit hook, in another repository:
 ```yaml
 repos:
   - repo: https://github.com/grahambrooks/brake
-    rev: v2026.8.0
+    rev: v2026.8.4
     hooks:
       - id: brake
 ```
@@ -239,10 +250,16 @@ cargo install brake --features mcp
 }
 ```
 
-Four tools — `check_change`, `compare_contracts`, `explain_rule`,
-`check_repository` — plus the rule catalogue and the evolution strategies as
-readable resources. `compare_contracts` needs no `brake.toml` at all, so it
-works on a repository the agent has never configured.
+Five tools — `check_change`, `compare_contracts`, `who_consumes`,
+`explain_rule` and `check_repository` — plus the rule catalogue, the evolution
+strategies, the resolved configuration and the consumer inventory as readable
+resources. `compare_contracts` needs no `brake.toml` at all, so it works on a
+repository the agent has never configured, and `who_consumes` answers *who
+breaks* while the edit can still be reconsidered.
+
+Four [agent skills](docs/agent-skills.md) ship alongside it, in
+`.claude/skills/`: when to consult `brake`, and how to read the answer without
+over-claiming.
 
 It exposes **no way to run a declared generator command**. `--drift` executes a
 command out of a config file, and a tool that honoured it would hand arbitrary
@@ -269,12 +286,22 @@ The `1` / `2` split is the one that matters. CI must distinguish "your API
 broke" from "the gate is broken", because the correct response differs and
 conflating them trains a team to ignore both.
 
-## User guide examples
+## Documentation
 
-Reference examples and expected outcomes for OpenAPI, Protobuf, and GraphQL are
-documented in [docs/user-guide-test-cases.md](docs/user-guide-test-cases.md).
-The same matrix is exercised in automated acceptance tests at
-`tests/user_guide_cases.rs`.
+| Guide | What it covers |
+| --- | --- |
+| [Getting started](docs/getting-started.md) | Install, `brake init`, your first finding, and how to read one |
+| [Configuration](docs/configuration.md) | Every key in `brake.toml`: contracts, baselines, levels, suppressions, drift |
+| [Consumer demand](docs/consumers.md) | Pacts, GraphQL operations and manifests, so a finding names *who* it breaks |
+| [CI and hooks](docs/ci.md) | The pre-commit hook, GitHub Actions, SARIF, and the exit-code split |
+| [MCP server](docs/mcp.md) | The tool surface an agent sees, and the trust posture that constrains it |
+| [Agent skills](docs/agent-skills.md) | The four skills in `.claude/skills/`, and how to install them elsewhere |
+| [Rule catalogue](docs/rules.md) | Every rule, generated from `src/rules/catalogue.rs` |
+| [Design specification](design/) | Why it is shaped this way, and what is deliberately not being built |
+
+Reference examples and expected outcomes for OpenAPI, protobuf and GraphQL are
+in [docs/user-guide-test-cases.md](docs/user-guide-test-cases.md); the same
+matrix is exercised by `tests/user_guide_cases.rs`.
 
 ## Two scopes, one ruleset
 

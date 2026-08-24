@@ -1,0 +1,60 @@
+<!--
+  The brake mark: a vented disc rotor with a caliper clamped over it.
+
+  Hand-authored geometry, no external font and no raster asset, so the file
+  renders identically wherever it is embedded — README, docs, favicon — and a
+  diff against it is readable. The tile carries its own background, so one file
+  serves GitHub's light and dark themes without a `prefers-color-scheme` pair.
+
+  The caliper straddles the rotor rather than sitting beside it, and the disc
+  shows through the opening: a brake does not stop the wheel, it stops the
+  wheel going somewhere bad.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256"
+     role="img" aria-labelledby="brake-title brake-desc">
+  <title id="brake-title">brake</title>
+  <desc id="brake-desc">A brake caliper clamped over a vented disc rotor.</desc>
+
+  <defs>
+    <linearGradient id="brake-tile" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#22303F"/>
+      <stop offset="1" stop-color="#121A24"/>
+    </linearGradient>
+    <!-- The cooling slots, cut out of the rotor rather than painted over it,
+         so the tile gradient shows through unbroken. -->
+    <mask id="brake-vents">
+      <rect width="256" height="256" fill="#fff"/>
+      <g stroke="#000" stroke-width="9" stroke-linecap="round">
+        <line x1="128" y1="64" x2="128" y2="42" transform="rotate(25 128 128)"/>
+        <line x1="128" y1="64" x2="128" y2="42" transform="rotate(70 128 128)"/>
+        <line x1="128" y1="64" x2="128" y2="42" transform="rotate(115 128 128)"/>
+        <line x1="128" y1="64" x2="128" y2="42" transform="rotate(160 128 128)"/>
+        <line x1="128" y1="64" x2="128" y2="42" transform="rotate(205 128 128)"/>
+        <line x1="128" y1="64" x2="128" y2="42" transform="rotate(250 128 128)"/>
+        <line x1="128" y1="64" x2="128" y2="42" transform="rotate(295 128 128)"/>
+        <line x1="128" y1="64" x2="128" y2="42" transform="rotate(340 128 128)"/>
+      </g>
+    </mask>
+  </defs>
+
+  <rect width="256" height="256" rx="56" fill="url(#brake-tile)"/>
+
+  <!-- The rotor: a band from r=66 to r=85, and the hub. -->
+  <circle cx="128" cy="128" r="75.5" fill="none" stroke="#E3EAF2" stroke-width="19"
+          mask="url(#brake-vents)"/>
+  <circle cx="128" cy="128" r="17" fill="#E3EAF2"/>
+
+  <!-- The caliper, drawn in a frame rotated to 145°: local x is radial, local
+       y tangential. The notch runs from the inner edge to r=80, so the rotor
+       band is visible passing through the jaws. -->
+  <path transform="rotate(-145 128 128)" fill="#E5484D" d="
+    M 184 95
+    L 212 95 A 14 14 0 0 1 226 109
+    L 226 147 A 14 14 0 0 1 212 161
+    L 184 161 A 6 6 0 0 1 178 155
+    L 178 143 A 6 6 0 0 1 184 137
+    L 199 137 A 9 9 0 0 0 208 128
+    A 9 9 0 0 0 199 119
+    L 184 119 A 6 6 0 0 1 178 113
+    L 178 101 A 6 6 0 0 1 184 95 Z"/>
+</svg>
