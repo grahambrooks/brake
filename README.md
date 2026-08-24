@@ -12,7 +12,7 @@
 
 **A brake on breaking API changes.** It compares an API contract against its
 previous version and fails the commit when the change would break a consumer —
-across OpenAPI, protobuf, and GraphQL, from one CLI and one ruleset.
+across OpenAPI, protobuf, GraphQL and AsyncAPI, from one CLI and one ruleset.
 
 **It never makes a network request, never runs your service, and never needs a
 toolchain.** `brake` works on a fresh checkout with nothing installed, by
@@ -79,9 +79,15 @@ Pronounced like the thing it prevents.
 
 ## Status
 
-**Working.** OpenAPI 3.0/3.1, protobuf 3 and GraphQL SDL are all ingested and
-compared through one ruleset; `check`, `analyze`, `diff`, `explain` and
-`consumers` are implemented, with text, JSON and SARIF output.
+**Working.** OpenAPI 3.0/3.1, protobuf 3, GraphQL SDL and AsyncAPI 2.x/3.x are
+all ingested and compared through one ruleset; `check`, `analyze`, `diff`,
+`explain` and `consumers` are implemented, with text, JSON, SARIF, GitHub
+workflow-command and GitLab Code Quality output.
+
+A contract may span several files — a `$ref` into a sibling document is
+resolved, within that document's directory, with no network request and no
+bundler. The baseline reads its siblings from the baseline's own revision, so a
+field deleted from a shared schema is still a removal.
 
 Consumer declarations — pact files, GraphQL operation documents, native
 manifests — are a third input, so a finding can name *who* it breaks rather
@@ -286,12 +292,21 @@ The `1` / `2` split is the one that matters. CI must distinguish "your API
 broke" from "the gate is broken", because the correct response differs and
 conflating them trains a team to ignore both.
 
+## Output for CI
+
+`--format github` emits GitHub Actions workflow commands, so findings appear as
+inline pull-request annotations with no upload step and no extra permissions.
+`--format gitlab` emits a GitLab Code Quality report for the merge-request
+widget. `sarif` still feeds code scanning, and `json` feeds your own tooling.
+See [docs/ci.md](docs/ci.md#output-for-ci).
+
 ## Documentation
 
 | Guide | What it covers |
 | --- | --- |
 | [Getting started](docs/getting-started.md) | Install, `brake init`, your first finding, and how to read one |
 | [Configuration](docs/configuration.md) | Every key in `brake.toml`: contracts, baselines, levels, suppressions, drift |
+| [Contract formats](docs/formats.md) | What each of the four ingesters models, and contracts that span several files |
 | [Consumer demand](docs/consumers.md) | Pacts, GraphQL operations and manifests, so a finding names *who* it breaks |
 | [CI and hooks](docs/ci.md) | The pre-commit hook, GitHub Actions, SARIF, and the exit-code split |
 | [MCP server](docs/mcp.md) | The tool surface an agent sees, and the trust posture that constrains it |

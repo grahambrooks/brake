@@ -30,8 +30,10 @@ the command does not exist.
 
 Two things, both already in your repository:
 
-- **A contract** — an OpenAPI 3.0/3.1 document, a protobuf 3 file, or a
-  GraphQL SDL schema.
+- **A contract** — an OpenAPI 3.0/3.1 document, a protobuf 3 file, a GraphQL
+  SDL schema, or an AsyncAPI 2.x/3.x document. It may span several files: a
+  `$ref` into a sibling document is resolved, within that document's directory
+  and without a network request.
 - **A baseline** — the previous version to compare against. A git ref, a tag,
   or a second file. Nothing is fetched and nothing is stored: the baseline is
   resolved from the repository on every run.
@@ -149,10 +151,15 @@ changelog drafting and inventory — not for gating.
 
 ## Output formats
 
-`--format` (`-f`) takes `auto`, `text`, `json` or `sarif`. `auto` — the
-default — renders text to a terminal and JSON to a pipe, so `brake consumers |
-jq` works without a flag and a hook still prints something a human can read.
-`consumers` has no SARIF form, because there is no finding to report.
+`--format` (`-f`) takes `auto`, `text`, `json`, `sarif`, `github` or `gitlab`.
+`auto` — the default — renders text to a terminal and JSON to a pipe, so
+`brake consumers | jq` works without a flag and a hook still prints something a
+human can read.
+
+`github` emits GitHub Actions workflow commands and `gitlab` emits a GitLab
+Code Quality report; both are covered in [CI and hooks](ci.md#output-for-ci).
+`consumers` renders text or JSON only — there is no finding to report, so the
+annotation formats have nothing to say.
 
 ## Where next
 

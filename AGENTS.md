@@ -1,4 +1,6 @@
-# CLAUDE.md
+# AGENTS.md
+
+<!-- Generated from CLAUDE.md by `make agents`. Do not edit by hand. -->
 
 Guidance for working in this repository.
 

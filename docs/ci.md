@@ -114,6 +114,53 @@ Pair it with a second `[[contract]]` block over the same file whose baseline is
 release safe?" rather than "did *this change* break anything?". See
 [Configuration](configuration.md#two-contracts-over-one-artifact).
 
+## Output for CI
+
+Four machine-readable formats, for three different consumers.
+
+| `--format` | Aliases | For |
+| --- | --- | --- |
+| `github` | `github-actions` | Inline pull-request annotations, with no upload step |
+| `gitlab` | `codequality`, `code-quality` | The GitLab merge-request Code Quality widget |
+| `sarif` | — | GitHub code scanning, and anything else that reads SARIF |
+| `json` | — | Your own tooling |
+
+### GitHub annotations without an upload step
+
+```yaml
+      - run: brake check --since origin/${{ github.base_ref }} --format github
+```
+
+`github` emits workflow commands — `::error`, `::warning`, `::notice` — with
+the file, line and column of each finding and the rule id as the title, so
+findings appear on the diff immediately. Nothing is uploaded and no permissions
+are needed. Use it when you want fast feedback; use SARIF as well when you want
+the findings to persist in code scanning.
+
+An unavailable contract is emitted as `::error title=tool-failure::…`, so a
+broken gate is visible on the run rather than only in the exit code.
+
+### GitLab Code Quality
+
+```yaml
+brake:
+  script:
+    - brake analyze . --format gitlab > gl-code-quality-report.json
+  artifacts:
+    reports:
+      codequality: gl-code-quality-report.json
+```
+
+A JSON array of Code Quality issues: `description`, `check_name` (the rule id),
+`severity`, a `location` with path and line, and a `fingerprint` so GitLab can
+tell an existing finding from a new one.
+
+The fingerprint is derived from the rule id, the contract name, the finding's
+JSON pointer and the line — not from the message, so rewording a diagnostic
+does not resurface every finding as new. It is stable for a given `brake` build, which is what the widget needs;
+it is not promised to survive a Rust toolchain upgrade, so an upgrade may make
+existing findings look new once.
+
 ### Uploading to code scanning
 
 ```yaml

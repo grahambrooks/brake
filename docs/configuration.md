@@ -25,7 +25,7 @@ baseline = { git-merge-base = "origin/main" }
 
 [[contract]]
 name = "payments"
-format = "openapi"                        # openapi | proto | graphql
+format = "openapi"                        # openapi | proto | graphql | asyncapi
 source = "api/payments-openapi.yaml"
 compatibility = "surface"                 # optional, overrides [defaults]
 baseline = { latest-tag = "v*" }          # optional, overrides [defaults]
@@ -67,7 +67,7 @@ it — see [Two contracts over one artifact](#two-contracts-over-one-artifact).
 | Key | Required | Meaning |
 | --- | --- | --- |
 | `name` | yes | How the contract is referred to in findings and by `--contract` |
-| `format` | yes | `openapi`, `proto` or `graphql` |
+| `format` | yes | `openapi`, `proto`, `graphql` or `asyncapi` |
 | `source` | yes | Repository-relative path to the head document |
 | `compatibility` | no | Overrides `[defaults]` for this contract |
 | `baseline` | no | Overrides `[defaults]` for this contract |
@@ -207,6 +207,37 @@ The MCP server exposes no way to reach this path, deliberately: a tool that
 honoured `command` would hand arbitrary command execution to anything that can
 write `brake.toml`. See [design/04-mcp-interface.md](../design/04-mcp-interface.md) §5.1.
 
+## Contracts that span several files
+
+A `$ref` may point into a sibling document, and `brake` resolves it — without a
+network request, and without a bundler.
+
+```yaml
+# api/openapi.yaml
+        schema:
+          $ref: "./common/models.yaml#/components/schemas/Payment"
+```
+
+Three rules govern it, and they are the reason this stays hermetic:
+
+1. **A reference cannot leave the contract's own directory.** `../` that climbs
+   above it, and any absolute path, is refused outright — a tool failure, not a
+   silent read. The directory containing `source` is the boundary.
+2. **A reference to a URL is refused, never fetched.** `http://`, `https://`
+   and protocol-relative `//` are errors at ingest.
+3. **The baseline reads its siblings from the baseline.** A `$ref` on the base
+   side is resolved out of the same revision the baseline came from, not out of
+   the working tree. Otherwise today's shared schema would sit on both sides of
+   the comparison, and a field deleted from a file two documents share would be
+   missing from both — reported clean.
+
+The third has one exception, and it is stated rather than hidden: the legacy
+`{ git = "ref:path" }` baseline resolves straight to a blob, so the commit it
+came from is not recoverable. A cross-file `$ref` under that baseline is
+reported as unmodelled — `contract-partial` — rather than resolved from a
+revision `brake` would be guessing at. Prefer `tag`, `rev`, `latest-tag` or
+`git-merge-base`, all of which name a commit.
+
 ## `[[consumer]]` and `[consumers]`
 
 Declared consumer demand is a third input, so a finding can name *who* it
@@ -231,7 +262,7 @@ Flags are a convenience over the file, for one run. Nothing writes back.
 | `--severity <level>` | `check` | Minimum severity that fails. Default `warning` |
 | `--fail-on <level>` | `analyze` | The same, for `analyze` |
 | `--as-of <YYYY-MM-DD>` | `check`, `analyze`, `mcp` | Evaluate suppression expiry at this date |
-| `--format <fmt>` | `check`, `analyze`, `diff`, `consumers` | `auto`, `text`, `json`, `sarif` (`consumers` has no SARIF form) |
+| `--format <fmt>` | `check`, `analyze`, `diff`, `consumers` | `auto`, `text`, `json`, `sarif`, `github`, `gitlab` — see [CI and hooks](ci.md#output-for-ci) (`consumers` renders text or JSON only) |
 | `--drift` | `check`, `analyze` | Also run declared generator commands |
 
 `--baseline` accepts the same ideas as the file, in one string:

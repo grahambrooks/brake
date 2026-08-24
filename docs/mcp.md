@@ -19,6 +19,11 @@ non-default feature:
 cargo install brake --features mcp
 ```
 
+`check_change` and `compare_contracts` take a **single document as text**, so a
+contract that `$ref`s a sibling file is only partly visible to them — the
+missing document is reported as unmodelled rather than guessed at. Use
+`check_repository`, which reads the repository, when the contract spans files.
+
 The feature is not on by default because the server needs an async runtime, and
 a crate that is otherwise synchronous should not pay for one unless it is asked
 — `forge` takes the library with `default-features = false` and never sees
@@ -54,7 +59,7 @@ from, and it is the only directory the server will resolve a contract in.
 
 | Argument | Required | Meaning |
 | --- | --- | --- |
-| `format` | yes | `openapi`, `proto` or `graphql` |
+| `format` | yes | `openapi`, `proto`, `graphql` or `asyncapi` |
 | `proposed` | yes | The full proposed document, **as text** |
 | `contract` | no | Which `[[contract]]` to compare against. Required only when more than one is configured |
 | `baseline_document` | no | An inline baseline — supply it to check a change with no `brake.toml` and no repository |
@@ -73,7 +78,7 @@ guess rather than picking one.
 
 | Argument | Required | Meaning |
 | --- | --- | --- |
-| `format` | yes | `openapi`, `proto` or `graphql` |
+| `format` | yes | `openapi`, `proto`, `graphql` or `asyncapi` |
 | `base` | yes | The previous document, as text |
 | `head` | yes | The new document, as text |
 | `compatibility` | no | Defaults to `wire-json` |
@@ -138,6 +143,20 @@ gathered. The framing is `brake`'s rather than the agent's, which is most of
 the value: the difference between "here are some warnings" and "here is what a
 consumer of this API experiences, and here are the ways to give them what you
 want without that".
+
+## What a finding carries
+
+Each finding in a tool result carries the rule id, the message, the rationale, a
+`help_uri` into the [rule catalogue](rules.md), the remediation strategies bound
+to the field they are about, the consumers it `affects`, and a
+`suggested_suppression` — a ready-made `[[contract.allow]]` block with the rule,
+endpoint and field already filled in.
+
+The suppression is a *convenience, not a recommendation*. Its `reason` is a
+placeholder that has to be replaced with the real one, and adding it without
+saying so is the one thing an agent must never do with it: a suppression is a
+dated decision a human is accountable for. Prefer fixing the break, and reach
+for the block only once the user has agreed the break is acceptable.
 
 ## How to read a verdict
 
