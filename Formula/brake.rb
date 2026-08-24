@@ -5,26 +5,26 @@
 class Brake < Formula
   desc "A brake on breaking API changes: checks API contracts for backward compatibility"
   homepage "https://github.com/grahambrooks/brake"
-  version "2026.8.3"
+  version "2026.8.4"
   license "MIT"
 
   on_macos do
     if Hardware::CPU.arm?
-      url "https://github.com/grahambrooks/brake/releases/download/v2026.8.3/brake-v2026.8.3-aarch64-apple-darwin.tar.gz"
-      sha256 "88a7da4aedd5e73a911d2babd1c02cf65ef59286b35bd4c54e674494e3046a87"
+      url "https://github.com/grahambrooks/brake/releases/download/v2026.8.4/brake-v2026.8.4-aarch64-apple-darwin.tar.gz"
+      sha256 "b3874032248e8abd8eef8cdf4b10230087efe92f56c93aa1d5f764ed01fc2a14"
     elsif Hardware::CPU.intel?
-      url "https://github.com/grahambrooks/brake/releases/download/v2026.8.3/brake-v2026.8.3-x86_64-apple-darwin.tar.gz"
-      sha256 "68f33e1abbfccf1706ce5e48f88850bfcf2c37aa82d29a5440ca7f16c02f8703"
+      url "https://github.com/grahambrooks/brake/releases/download/v2026.8.4/brake-v2026.8.4-x86_64-apple-darwin.tar.gz"
+      sha256 "54bb95b968fd64fa2cd7cf1255b46fb29444730b501db7a1aea2a223493a93a5"
     end
   end
 
   on_linux do
     if Hardware::CPU.arm?
-      url "https://github.com/grahambrooks/brake/releases/download/v2026.8.3/brake-v2026.8.3-aarch64-unknown-linux-gnu.tar.gz"
-      sha256 "e6fe9dd015922cb4692a10a1aebee837a8f990ca1bd6e9beb625b315bbc625b1"
+      url "https://github.com/grahambrooks/brake/releases/download/v2026.8.4/brake-v2026.8.4-aarch64-unknown-linux-gnu.tar.gz"
+      sha256 "82de81f1abea32449798e3929ab4f3da95b826a87bd143a1829d86fd969a0e43"
     elsif Hardware::CPU.intel?
-      url "https://github.com/grahambrooks/brake/releases/download/v2026.8.3/brake-v2026.8.3-x86_64-unknown-linux-gnu.tar.gz"
-      sha256 "5ca58ed9bd088c3e1509462e06ef2bbca0237bf10e5ba6853c39849f7fb6d10c"
+      url "https://github.com/grahambrooks/brake/releases/download/v2026.8.4/brake-v2026.8.4-x86_64-unknown-linux-gnu.tar.gz"
+      sha256 "99ed156581b597bea352eaaaf804684352ee249419309005858e9730890bc924"
     end
   end
 
