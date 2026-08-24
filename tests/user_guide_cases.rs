@@ -224,6 +224,7 @@ type Query {
                 allow: Vec::new(),
                 generated: None,
             }],
+            ..Config::default()
         };
 
         let report = check(repo.path(), &config, &Scope::All, &Options::default());

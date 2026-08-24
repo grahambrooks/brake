@@ -95,6 +95,7 @@ fn report_for(level: Compatibility, baseline: &str, head: &str) -> brake::report
             allow: Vec::new(),
             generated: None,
         }],
+        ..Config::default()
     };
     check(checkout.path(), &config, &Scope::All, &Options::default())
 }
@@ -128,6 +129,7 @@ fn text_diagnostic_for_a_tool_failure() {
             allow: Vec::new(),
             generated: None,
         }],
+        ..Config::default()
     };
     let report = check(checkout.path(), &config, &Scope::All, &Options::default());
     insta::assert_snapshot!(

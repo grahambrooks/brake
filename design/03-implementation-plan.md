@@ -52,6 +52,11 @@ src/
 ├── rules/
 │   ├── mod.rs           Change × Level → Vec<Finding>
 │   └── catalogue.rs     rule IDs, severities, level gating, explain text
+├── demand/
+│   ├── mod.rs           what consumers declare they use — 05-consumer-demand.md
+│   ├── pact.rs          Pact v2/v3/v4 HTTP → Demand (bytes-only, like every ingester)
+│   ├── operations.rs    GraphQL operation documents → Demand
+│   └── manifest.rs      the native *.brake-uses.toml → Demand
 ├── baseline.rs          file / git / git-merge-base resolution via gix
 ├── report.rs            Finding, Severity, Span, verdict, exit code mapping
 └── render/
@@ -307,6 +312,26 @@ The two decisions worth knowing without opening that document:
   async surface at the transport, so every handler calls the same synchronous
   library functions the CLI calls.
 
+### M12–M15 — Consumer demand (~13 days)
+
+Specified in [05-consumer-demand.md](05-consumer-demand.md) §11: the demand
+model and pact ingest (M12), attribution and the escalate/triage policies
+(M13), GraphQL operation documents and the native manifest (M14), and
+`who_consumes` over MCP (M15).
+
+The decision worth knowing without opening that document: **verification is the
+existing comparator run sideways.** A consumer's expectation goes on the *base*
+side and the head contract on the head side, so `compare/types.rs` answers "does
+the contract still satisfy this consumer?" with the rules it already has. There
+is no second comparator, and no baseline is involved — demand is evaluated
+against `head` only, which is what keeps this on the right side of the thesis's
+"not a registry".
+
+M13 adds a field to `Finding`, which breaks forge's struct literals. It ships as
+a deliberate, announced break with `#[non_exhaustive]` applied in the same
+change, since a tool that gates breaking changes should be visibly subject to
+its own ruleset.
+
 ### Total
 
 Phase 1, M1–M6, is roughly **23 working days**. M1 alone is four days and
@@ -318,7 +343,7 @@ Per the standing convention: every rule needs a fixture-backed test proving it
 fires on a positive case *and* stays quiet on a negative one. Silent false
 positives are the failure mode that gets a hook uninstalled.
 
-Beyond the per-rule pairs, five tests exist to defend claims the tool makes
+Beyond the per-rule pairs, seven tests exist to defend claims the tool makes
 about itself, and each maps to a numbered guarantee in
 [02-contract-gates.md](02-contract-gates.md) §6.1:
 
@@ -329,6 +354,8 @@ about itself, and each maps to a numbered guarantee in
 | Spec with an `http://` `$ref` produces `contract-unreachable` and opens no socket | G1 hermeticity |
 | `$ref` escaping the source directory is an error, not a read | G2 filesystem bound |
 | Configured-but-missing baseline exits `2`, not `0` | §6.2 honest failure |
+| A pact carrying broker `_links` produces findings and opens no socket | G1, over the demand axis — [05-consumer-demand.md](05-consumer-demand.md) §8 |
+| A declared consumer whose file is absent exits `1`, never clean | §6.2 honest failure, on which the CI-pull workflow entirely rests |
 
 The last one is worth stating as a test rather than a convention because it is
 the failure that would make every other test meaningless — a gate that returns

@@ -109,12 +109,53 @@ fn render_finding(report: &Report, finding: &Finding) -> String {
         group = group.element(Level::NOTE.message(&contract_note));
     }
 
+    // Who this breaks, and where they said so. The interaction line is the
+    // evidence: it turns "this might break somebody" into a name and a file.
+    let affects = affects_notes(finding);
+    for note in &affects {
+        group = group.element(Level::NOTE.message(note));
+    }
+    if let Some(note) = &finding.note {
+        group = group.element(Level::NOTE.message(note));
+    }
+
     let mut report_groups = vec![group];
     if let Some(help) = &help {
         report_groups.push(Group::with_title(Level::HELP.secondary_title(help)));
     }
 
     format!("{}\n", Renderer::plain().render(&report_groups))
+}
+
+/// `breaks web-checkout — pacts/web-checkout-payments.json:88`, one per
+/// affected consumer.
+///
+/// "breaks" only where the finding is an error. A warning or a note is not a
+/// break, and saying it is would be the kind of confident overstatement that
+/// teaches a team to stop reading the output.
+#[cfg(feature = "cli")]
+fn affects_notes(finding: &Finding) -> Vec<String> {
+    finding
+        .affects
+        .iter()
+        .map(|reference| {
+            format!(
+                "{} {} — {}:{}",
+                verb(finding.severity),
+                reference.consumer,
+                reference.source,
+                reference.span.line
+            )
+        })
+        .collect()
+}
+
+#[cfg(feature = "cli")]
+fn verb(severity: Severity) -> &'static str {
+    match severity {
+        Severity::Error => "breaks",
+        Severity::Warning | Severity::Info => "declared by",
+    }
 }
 
 /// Fallback when the crate is built without the `cli` feature: a consumer
@@ -134,6 +175,15 @@ fn render_finding(_report: &Report, finding: &Finding) -> String {
         ));
     }
     out.push_str(&format!("\n  = contract: {}\n", finding.contract));
+    for reference in &finding.affects {
+        out.push_str(&format!(
+            "  = consumer {} — {}:{}\n",
+            reference.consumer, reference.source, reference.span.line
+        ));
+    }
+    if let Some(note) = &finding.note {
+        out.push_str(&format!("  = {note}\n"));
+    }
     out
 }
 
@@ -235,6 +285,8 @@ mod tests {
 
     fn finding(rule_id: &'static str, severity: Severity, span: Option<Span>) -> Finding {
         Finding {
+            affects: Vec::new(),
+            note: None,
             rule_id,
             severity,
             contract: "payments".to_owned(),

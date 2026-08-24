@@ -86,6 +86,9 @@ impl BrakeServer {
                 }
                 "check_repository" => decode(arguments)
                     .and_then(|args| handlers::check_repository(&self.context, args)),
+                "who_consumes" => {
+                    decode(arguments).and_then(|args| handlers::who_consumes(&self.context, args))
+                }
                 other => Err(handlers::ToolFailure {
                     message: format!(
                         "unknown tool `{other}`. This server offers: {}",

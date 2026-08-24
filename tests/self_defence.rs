@@ -1,9 +1,14 @@
-//! The five tests that defend the claims brake makes about itself.
+//! The seven tests that defend the claims brake makes about itself.
 //!
 //! Each maps to a numbered guarantee in `design/02-contract-gates.md` §6.1,
 //! and the set is enumerated in `design/03-implementation-plan.md` §6. They are
 //! not optional: a deterministic tool must be *provably* deterministic or it is
 //! a flaky test with a good reputation.
+//!
+//! Five defend the contract axis. Two more, at the end, defend the same
+//! guarantees over the *demand* axis that `design/05-consumer-demand.md` §8
+//! adds: a URL in a pact is data, and a declared consumer brake could not read
+//! is never a clean run.
 //!
 //! Fixtures are built under `tempfile::tempdir()`, never read from the
 //! surrounding checkout. A test that inspects the ambient repository passes on
@@ -86,6 +91,7 @@ fn config(format: ContractFormat, source: &str, baseline: &str) -> Config {
             allow: Vec::new(),
             generated: None,
         }],
+        ..Config::default()
     }
 }
 
@@ -534,3 +540,122 @@ type Payment {
   id: ID!
 }
 "#;
+
+// ── the demand axis: design/05-consumer-demand.md §8 ────────────────────────
+
+/// A pact declaring exactly what `OPENAPI` produces, so any finding below is
+/// about the URLs in it rather than about the payload.
+const PACT_FULL_OF_URLS: &str = r#"{
+  "consumer": { "name": "web-checkout" },
+  "provider": { "name": "payments" },
+  "_links": {
+    "self": { "href": "http://broker.invalid/pacts/provider/payments/latest" },
+    "pb:publish-verification-results": { "href": "https://broker.invalid/verify" }
+  },
+  "interactions": [
+    {
+      "description": "a request for payment 42",
+      "request": { "method": "GET", "path": "/payments/42" },
+      "response": {
+        "status": 200,
+        "headers": { "Content-Type": "application/json" },
+        "body": {
+          "id": "42",
+          "legacy_reference": "L-1",
+          "customer_id": { "$ref": "http://example.invalid/schema.json" }
+        }
+      }
+    }
+  ]
+}"#;
+
+fn demand_config(consumer_source: &str) -> Config {
+    Config::parse(&format!(
+        "[[contract]]\nname = \"payments\"\nformat = \"openapi\"\n\
+         source = \"api/openapi.yaml\"\n\
+         baseline = {{ file = \"api/openapi.baseline.yaml\" }}\n\
+         \n[[consumer]]\nformat = \"pact\"\nsource = \"{consumer_source}\"\n"
+    ))
+    .expect("the config in this test must parse")
+}
+
+/// G1, over the demand axis — a URL anywhere in a pact is data.
+///
+/// `_links`, `pb:publish`, a `$ref` inside an example body: none of them is
+/// ever dereferenced, under any flag. The hosts here are `.invalid`, which is
+/// reserved by RFC 2606 and can never resolve, so a run that tried to fetch
+/// one would hang or fail rather than agree with itself.
+#[test]
+fn g1_a_pact_carrying_broker_links_and_a_remote_ref_opens_no_socket() {
+    let checkout = repo(&[
+        ("api/openapi.yaml", OPENAPI),
+        ("api/openapi.baseline.yaml", OPENAPI),
+        ("pacts/web-checkout.json", PACT_FULL_OF_URLS),
+    ]);
+    let config = demand_config("pacts/web-checkout.json");
+
+    let report = check(checkout.path(), &config, &Scope::All, &Options::default());
+
+    // The verdict came from the bytes on disk: `customer_id` is reported as a
+    // field the contract does not produce, rather than resolved over the wire.
+    assert!(
+        report.findings.iter().any(|finding| {
+            finding.rule_id == "consumer-field-unmet"
+                && finding.subject.as_deref() == Some("customer_id")
+        }),
+        "{:?}",
+        report
+            .findings
+            .iter()
+            .map(|finding| &finding.message)
+            .collect::<Vec<_>>()
+    );
+    assert_eq!(
+        json::render(&report),
+        json::render(&check(
+            checkout.path(),
+            &config,
+            &Scope::All,
+            &Options::default()
+        )),
+        "two runs against a host that cannot exist agree, which they could not \
+         do if either had waited on it"
+    );
+}
+
+/// §6.2 honest failure, over the demand axis.
+///
+/// The CI-pull workflow of §5.1 rests entirely on this: a prior step writes
+/// the directory and a failed pull leaves the declared file absent. That has
+/// to be loud rather than clean, or the pipeline reports a verification that
+/// never happened.
+#[test]
+fn honest_failure_a_declared_consumer_that_is_absent_never_reads_as_clean() {
+    let checkout = repo(&[
+        ("api/openapi.yaml", OPENAPI),
+        ("api/openapi.baseline.yaml", OPENAPI),
+    ]);
+    let report = check(
+        checkout.path(),
+        &demand_config("pacts/pulled-by-ci.json"),
+        &Scope::All,
+        &Options::default(),
+    );
+
+    assert_eq!(
+        report.exit_code(brake::Severity::Warning),
+        1,
+        "a declaration brake could not read must not be reported as satisfied"
+    );
+    let unreachable = report
+        .findings
+        .iter()
+        .find(|finding| finding.rule_id == "consumer-unreachable")
+        .expect("consumer-unreachable");
+    assert_eq!(unreachable.severity, brake::Severity::Error);
+    assert!(
+        unreachable.message.contains("pulled-by-ci.json"),
+        "the finding must name the file: {}",
+        unreachable.message
+    );
+}

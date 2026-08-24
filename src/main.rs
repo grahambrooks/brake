@@ -47,6 +47,13 @@ enum Command {
         /// Check only these contracts, by name. Repeatable.
         #[arg(long)]
         contract: Vec<String>,
+        /// Verify against only these declared consumers, by name. Repeatable.
+        ///
+        /// Mirrors `--contract`. A path scope that names a consumer
+        /// declaration selects the contracts that declaration constrains, so a
+        /// hook run on a pact-updating commit verifies the right thing.
+        #[arg(long)]
+        consumer: Vec<String>,
         /// Override every contract's baseline.
         ///
         /// A revision (`v1.2.0`, `origin/main`, `8743cba`), a tag glob
@@ -84,6 +91,9 @@ enum Command {
         /// Check only these contracts, by name. Repeatable.
         #[arg(long)]
         contract: Vec<String>,
+        /// Verify against only these declared consumers, by name. Repeatable.
+        #[arg(long)]
+        consumer: Vec<String>,
         /// Override the compatibility level.
         #[arg(long)]
         compatibility: Option<String>,
@@ -152,6 +162,26 @@ enum Command {
         #[arg(long)]
         as_of: Option<String>,
     },
+    /// Report who consumes what, and what the verdict rested on.
+    ///
+    /// Non-gating: it always exits 0, joining `diff` in that family. Each
+    /// declaration is listed with its path and a content digest, because brake
+    /// does not measure freshness — a pact from eighteen months ago and one
+    /// from this morning are the same bytes to a file reader.
+    Consumers {
+        /// Path to brake.toml.
+        #[arg(long)]
+        config: Option<PathBuf>,
+        /// Report only these contracts, by name. Repeatable.
+        #[arg(long)]
+        contract: Vec<String>,
+        /// Report only these consumers, by name. Repeatable.
+        #[arg(long)]
+        consumer: Vec<String>,
+        /// Output format: auto, text, json.
+        #[arg(long, short, default_value = "auto")]
+        format: String,
+    },
     /// Explain why a rule exists and what to do about it.
     Explain {
         /// A rule ID, for example `response-field-removed`. Omit to list all.
@@ -186,6 +216,7 @@ fn run(cli: Cli) -> Result<ExitCode, String> {
             since,
             config,
             contract,
+            consumer,
             baseline,
             compatibility,
             severity,
@@ -210,6 +241,7 @@ fn run(cli: Cli) -> Result<ExitCode, String> {
                 compatibility: compatibility.as_deref().map(parse_level).transpose()?,
                 baseline: baseline.as_deref().map(parse_baseline),
                 only: contract,
+                consumers: consumer,
             };
 
             let report = brake::check::check(&root, &config_value, &scope, &options);
@@ -223,6 +255,7 @@ fn run(cli: Cli) -> Result<ExitCode, String> {
             path,
             config,
             contract,
+            consumer,
             compatibility,
             format,
             fail_on,
@@ -240,6 +273,7 @@ fn run(cli: Cli) -> Result<ExitCode, String> {
                 compatibility: compatibility.as_deref().map(parse_level).transpose()?,
                 baseline: None,
                 only: contract,
+                consumers: consumer,
             };
 
             let report = brake::check::check(&path, &config_value, &Scope::All, &options);
@@ -247,6 +281,26 @@ fn run(cli: Cli) -> Result<ExitCode, String> {
             Ok(ExitCode::from(
                 report.exit_code(parse_severity(&fail_on)?) as u8
             ))
+        }
+
+        Command::Consumers {
+            config,
+            contract,
+            consumer,
+            format,
+        } => {
+            let (root, config_value) = load(config.as_deref())?;
+            let inventory =
+                brake::demand::inventory::build(&root, &config_value, &contract, &consumer);
+            let rendered = match normalize_format(&format)? {
+                OutputFormat::Text => brake::demand::inventory::render_text(&inventory),
+                OutputFormat::Json | OutputFormat::Sarif => {
+                    brake::demand::inventory::render_json(&inventory)
+                }
+            };
+            print!("{rendered}");
+            // Non-gating, by design: it answers a question, it does not judge.
+            Ok(ExitCode::from(Verdict::Clean.exit_code() as u8))
         }
 
         Command::Diff {
@@ -265,6 +319,7 @@ fn run(cli: Cli) -> Result<ExitCode, String> {
                 compatibility: Some(Compatibility::Strict),
                 baseline: baseline.as_deref().map(parse_baseline),
                 only: contract,
+                consumers: Vec::new(),
             };
 
             let report = brake::check::check(&root, &config_value, &Scope::All, &options);

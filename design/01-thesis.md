@@ -140,12 +140,18 @@ cut on purpose.
 - **Not a spec linter.** Style rules — operation IDs must be camelCase, every
   response needs an example — are `vacuum` and `spectral`'s job. If a rule
   cannot break a consumer, it does not belong here.
-- **Not a runtime contract tester.** Pact-style consumer-driven verification
-  requires running both sides. `brake` never issues a request.
+- **Not a runtime contract tester.** `brake` never issues a request, and never
+  verifies an implementation against anything. Consumer *declarations* are a
+  different matter and were the wrong thing to exclude here: a pact is a JSON
+  file, and reading one is the same act as reading an OpenAPI file.
+  [05-consumer-demand.md](05-consumer-demand.md) draws the line — the
+  specification checked against the expectation, never the service — and
+  restates every exclusion it does not cross.
 - **Not a mock server or code generator.** `progenitor` and `utoipa` do this
   well. `brake` gates their output for drift; it does not replace them.
 - **Not a registry.** No stored version history, no server, no `can-i-deploy`.
-  The baseline is a file or a git ref, resolved locally.
+  The baseline is a file or a git ref, resolved locally, and a consumer
+  declaration is a file in the tree — never a broker query.
 - **No transitive compatibility modes.** Confluent's `BACKWARD_TRANSITIVE` needs
   the full history, which needs the registry that is not being built. `brake`
   compares exactly two versions.
@@ -183,3 +189,5 @@ repository carries the part that is hard.
 - [03-implementation-plan.md](03-implementation-plan.md) — build order and milestones
 - [04-mcp-interface.md](04-mcp-interface.md) — the same ruleset, consulted at
   edit time by a coding agent rather than at commit time by a hook
+- [05-consumer-demand.md](05-consumer-demand.md) — the same ruleset made
+  authoritative, by reading what consumers declare they use

@@ -6,6 +6,7 @@ expression: "serde_json::to_string_pretty(&value).expect(\"pretty\")"
   "contracts_checked": 1,
   "findings": [
     {
+      "affects": [],
       "column": 19,
       "contract": "payments",
       "file": "api/openapi.yaml",
@@ -13,6 +14,7 @@ expression: "serde_json::to_string_pretty(&value).expect(\"pretty\")"
       "line": 20,
       "message": "response enum extended: response `200` at `/status` in `GET /payments/{id}`",
       "method": "GET",
+      "note": null,
       "path": "/payments/{id}",
       "pointer": "/paths/~1payments~1{id}/get/responses/200/status",
       "remediation": [
@@ -32,6 +34,7 @@ expression: "serde_json::to_string_pretty(&value).expect(\"pretty\")"
       "subject": "status"
     },
     {
+      "affects": [],
       "column": 19,
       "contract": "payments",
       "file": "api/openapi.baseline.yaml",
@@ -39,6 +42,7 @@ expression: "serde_json::to_string_pretty(&value).expect(\"pretty\")"
       "line": 20,
       "message": "response field removed: response `200` at `/customer_id`: field `customer_id` in `GET /payments/{id}`",
       "method": "GET",
+      "note": null,
       "path": "/payments/{id}",
       "pointer": "/paths/~1payments~1{id}/get/responses/200/customer_id",
       "remediation": [

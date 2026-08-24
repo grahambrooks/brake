@@ -70,8 +70,7 @@ pub struct Discovery {
 /// Walk `root` and return every file an ingester can read.
 #[must_use]
 pub fn discover(root: &Path) -> Discovery {
-    let mut candidates = Vec::new();
-    collect(root, 0, &mut candidates);
+    let mut candidates = walk(root, &has_candidate_extension);
     candidates.sort();
 
     let truncated = candidates.len() > MAX_CANDIDATES;
@@ -114,7 +113,20 @@ pub fn discover(root: &Path) -> Discovery {
     discovery
 }
 
-fn collect(directory: &Path, depth: usize, out: &mut Vec<PathBuf>) {
+/// Every file under `root` whose name `accept` allows.
+///
+/// Shared with `demand::load`, which looks for consumer declarations rather
+/// than contracts: the skip list, the depth bound and the symlink rule are
+/// properties of walking a repository, not of what is being looked for, and
+/// two copies of them would drift.
+#[must_use]
+pub fn walk(root: &Path, accept: &dyn Fn(&str) -> bool) -> Vec<PathBuf> {
+    let mut out = Vec::new();
+    collect(root, 0, accept, &mut out);
+    out
+}
+
+fn collect(directory: &Path, depth: usize, accept: &dyn Fn(&str) -> bool, out: &mut Vec<PathBuf>) {
     if depth > MAX_DEPTH {
         return;
     }
@@ -135,8 +147,8 @@ fn collect(directory: &Path, depth: usize, out: &mut Vec<PathBuf>) {
             if kind.is_symlink() || SKIP_DIRECTORIES.contains(&name.as_str()) {
                 continue;
             }
-            collect(&path, depth + 1, out);
-        } else if kind.is_file() && has_candidate_extension(&name) {
+            collect(&path, depth + 1, accept, out);
+        } else if kind.is_file() && accept(&name) {
             out.push(path);
         }
     }

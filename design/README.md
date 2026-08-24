@@ -17,6 +17,7 @@ list of things deliberately not being built.
 | [02-contract-gates.md](02-contract-gates.md) | The specification: configuration, the contract model, compatibility levels, the rule catalogue, determinism guarantees, the interface |
 | [03-implementation-plan.md](03-implementation-plan.md) | Crate shape, module layout, public API, dependency decisions, milestones with completion conditions, test strategy, risks |
 | [04-mcp-interface.md](04-mcp-interface.md) | The MCP server: the same ruleset consulted at edit time by a coding agent, its tool surface, and the trust posture that constrains it |
+| [05-consumer-demand.md](05-consumer-demand.md) | Consumer declarations — pact files, GraphQL operations, native manifests — as a third input, so a finding can name who it breaks |
 
 ## Status
 
@@ -26,6 +27,11 @@ levels, suppressions, drift, and version-controlled baselines. See
 
 M10, the MCP interface in [04-mcp-interface.md](04-mcp-interface.md), is built
 behind the non-default `mcp` feature.
+
+M12–M15, consumer demand in [05-consumer-demand.md](05-consumer-demand.md), are
+built: pact, GraphQL-operation and native-manifest declarations, the join, the
+consumer rules, `affects` on every finding, the three policies, `brake
+consumers` and `who_consumes` over MCP.
 
 ## The shape of the argument
 

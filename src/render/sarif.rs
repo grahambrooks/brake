@@ -69,6 +69,33 @@ pub fn render(report: &Report) -> String {
                 },
             });
 
+            // SARIF related locations are exactly this: the other place that
+            // makes this result meaningful. `partialFingerprints` are
+            // unchanged, so attribution appearing on an existing finding does
+            // not re-alert.
+            if !finding.affects.is_empty() {
+                result["relatedLocations"] = json!(
+                    finding
+                        .affects
+                        .iter()
+                        .enumerate()
+                        .map(|(index, reference)| json!({
+                            "id": index + 1,
+                            "message": {
+                                "text": format!("declared by consumer `{}`", reference.consumer),
+                            },
+                            "physicalLocation": {
+                                "artifactLocation": { "uri": reference.source },
+                                "region": { "startLine": reference.span.line },
+                            },
+                        }))
+                        .collect::<Vec<_>>()
+                );
+            }
+            if let Some(note) = &finding.note {
+                result["properties"]["note"] = json!(note);
+            }
+
             if let Some(span) = &finding.span {
                 result["locations"] = json!([{
                     "physicalLocation": {
@@ -166,6 +193,8 @@ mod tests {
 
     fn finding(line: usize) -> Finding {
         Finding {
+            affects: Vec::new(),
+            note: None,
             rule_id: "response-field-removed",
             severity: Severity::Error,
             contract: "payments".to_owned(),

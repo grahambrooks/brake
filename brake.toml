@@ -13,3 +13,11 @@ baseline = { git-merge-base = "origin/main" }
 name = "payments"
 format = "openapi"
 source = "api/payments-openapi.yaml"
+
+# …and gating it against a declared consumer, so a change that breaks
+# `web-checkout` names it rather than reporting that somebody might be
+# affected. The pact is a file in this repository: brake never fetches one.
+# See design/05-consumer-demand.md.
+[[consumer]]
+format = "pact"
+source = "pacts/web-checkout-payments.json"

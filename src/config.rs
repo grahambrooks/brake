@@ -4,10 +4,20 @@ use std::path::{Path, PathBuf};
 use serde::Deserialize;
 use thiserror::Error;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Config {
     pub defaults: Defaults,
     pub contracts: Vec<ContractConfig>,
+    /// Declared consumer demand — `design/05-consumer-demand.md` §5.
+    ///
+    /// A glob in `source` has already been expanded and sorted byte-wise by
+    /// the time a run reads this, so guarantee G3 holds over a directory
+    /// listing.
+    pub consumers: Vec<ConsumerConfig>,
+    /// The `[consumers]` block. One block rather than a per-contract setting,
+    /// because both knobs are statements about *this repository's knowledge of
+    /// the world* rather than about an artifact.
+    pub consumer_options: ConsumerOptions,
 }
 
 impl Config {
@@ -76,6 +86,66 @@ pub enum ContractFormat {
     Openapi,
     Proto,
     Graphql,
+}
+
+/// A consumer declaration format — `design/05-consumer-demand.md` §2.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum DemandFormat {
+    /// Pact v2/v3/v4 HTTP interactions, JSON.
+    Pact,
+    /// The consumer's own `.graphql` query documents. The strongest of the
+    /// three: a selection set *is* the field list, with no inference at all.
+    GraphqlOperations,
+    /// A hand- or codegen-written `*.brake-uses.toml`.
+    Manifest,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ConsumerConfig {
+    /// Optional in the file: a pact names itself.
+    pub name: Option<String>,
+    pub format: DemandFormat,
+    /// Repository-relative. May contain `*`, expanded and sorted at run time.
+    pub source: PathBuf,
+    /// Which `[[contract]]` this constrains. Defaults to whatever the artifact
+    /// names as its provider.
+    pub provider: Option<String>,
+}
+
+/// The `[consumers]` block.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct ConsumerOptions {
+    pub policy: ConsumerPolicy,
+    pub completeness: Completeness,
+}
+
+/// What a declared consumer does to a finding's severity — §7.1.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ConsumerPolicy {
+    /// Severities unchanged; affected consumers are named on the finding.
+    #[default]
+    Annotate,
+    /// A `warning` becomes an `error` when a declared consumer is affected.
+    /// `param-removed` and `security-removed` are warnings precisely because
+    /// brake could not tell whether anyone relied on them. Now it can.
+    Escalate,
+    /// An `error` becomes a `warning` when no declared consumer is affected.
+    /// Constrained by §7.2, because it is the one that can lie.
+    Triage,
+}
+
+/// Whether the declared consumer set is claimed to be exhaustive.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum Completeness {
+    /// There may be consumers brake has never heard of. The honest default.
+    #[default]
+    OpenWorld,
+    /// An explicit, reviewable assertion by a human that the declared set is
+    /// exhaustive. brake cannot verify that claim and does not pretend to.
+    ClosedWorld,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -164,6 +234,10 @@ struct RawConfig {
     defaults: RawDefaults,
     #[serde(default, rename = "contract")]
     contracts: Vec<RawContract>,
+    #[serde(default, rename = "consumer")]
+    consumers: Vec<RawConsumer>,
+    #[serde(default, rename = "consumers")]
+    consumers_options: Option<RawConsumerOptions>,
 }
 
 impl RawConfig {
@@ -173,9 +247,18 @@ impl RawConfig {
         for contract in self.contracts {
             contracts.push(contract.validate()?);
         }
+        let mut consumers = Vec::with_capacity(self.consumers.len());
+        for consumer in self.consumers {
+            consumers.push(consumer.validate()?);
+        }
         Ok(Config {
             defaults,
             contracts,
+            consumers,
+            consumer_options: self
+                .consumers_options
+                .map(RawConsumerOptions::validate)
+                .unwrap_or_default(),
         })
     }
 }
@@ -243,6 +326,63 @@ impl RawContract {
                 .map(|raw| raw.validate(&self.name))
                 .transpose()?,
         })
+    }
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawConsumer {
+    name: Option<String>,
+    format: DemandFormat,
+    source: PathBuf,
+    provider: Option<String>,
+}
+
+impl RawConsumer {
+    fn validate(self) -> Result<ConsumerConfig, ConfigError> {
+        if self.source.as_os_str().is_empty() {
+            return Err(ConfigError::Validation(
+                "a `[[consumer]]` has an empty source path".into(),
+            ));
+        }
+        // A demand source that is itself a URL is a configuration error,
+        // refused at parse time rather than fetched. G1, over the demand axis.
+        let text = self.source.to_string_lossy();
+        if text.contains("://") {
+            return Err(ConfigError::Validation(format!(
+                "consumer source `{text}` looks like a URL. brake never fetches a demand \
+                 source: have CI write the file and point `source` at the path"
+            )));
+        }
+        if let Some(name) = &self.name
+            && name.trim().is_empty()
+        {
+            return Err(ConfigError::Validation(
+                "a `[[consumer]]` has an empty name".into(),
+            ));
+        }
+        Ok(ConsumerConfig {
+            name: self.name,
+            format: self.format,
+            source: self.source,
+            provider: self.provider,
+        })
+    }
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawConsumerOptions {
+    policy: Option<ConsumerPolicy>,
+    completeness: Option<Completeness>,
+}
+
+impl RawConsumerOptions {
+    fn validate(self) -> ConsumerOptions {
+        ConsumerOptions {
+            policy: self.policy.unwrap_or_default(),
+            completeness: self.completeness.unwrap_or_default(),
+        }
     }
 }
 

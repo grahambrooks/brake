@@ -113,6 +113,12 @@ entry so the next reviewer does not have to work it out",
         cost: "none, but it is a decision someone has to actually make",
     },
     Strategy {
+        id: "document-the-endpoint",
+        summary: "document {endpoint} in the contract, since a consumer is calling it \
+already — an undocumented endpoint is one nothing gates",
+        cost: "documenting it is also committing to it",
+    },
+    Strategy {
         id: "major-version",
         summary: "if the break is genuinely intended, ship it as a new major version and \
 tell consumers, rather than moving {endpoint} underneath them",

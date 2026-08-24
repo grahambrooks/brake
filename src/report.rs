@@ -88,6 +88,8 @@ mod tests {
 
     fn finding(severity: Severity) -> Finding {
         Finding {
+            affects: Vec::new(),
+            note: None,
             rule_id: "endpoint-removed",
             severity,
             contract: "payments".to_owned(),

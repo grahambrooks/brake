@@ -1,0 +1,55 @@
+{
+  "consumer": { "name": "web-checkout" },
+  "provider": { "name": "payments" },
+  "interactions": [
+    {
+      "description": "a request for one payment",
+      "request": {
+        "method": "GET",
+        "path": "/payments/9f01e2b7-4e2a-4d3b-9a1c-000000000001",
+        "headers": { "Accept": "application/json" }
+      },
+      "response": {
+        "status": 200,
+        "headers": { "Content-Type": "application/json" },
+        "body": {
+          "id": "9f01e2b7-4e2a-4d3b-9a1c-000000000001",
+          "amount": 4200,
+          "status": "settled"
+        }
+      }
+    },
+    {
+      "description": "a request for a payment that does not exist",
+      "request": {
+        "method": "GET",
+        "path": "/payments/9f01e2b7-4e2a-4d3b-9a1c-000000000002",
+        "headers": { "Accept": "application/json" }
+      },
+      "response": { "status": 404 }
+    },
+    {
+      "description": "the first page of payments",
+      "request": {
+        "method": "GET",
+        "path": "/payments",
+        "query": { "limit": ["25"] },
+        "headers": { "Accept": "application/json" }
+      },
+      "response": {
+        "status": 200,
+        "headers": { "Content-Type": "application/json" },
+        "body": {
+          "items": [
+            {
+              "id": "9f01e2b7-4e2a-4d3b-9a1c-000000000001",
+              "amount": 4200,
+              "status": "settled"
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "metadata": { "pactSpecification": { "version": "3.0.0" } }
+}

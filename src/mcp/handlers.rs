@@ -45,6 +45,7 @@ impl Context {
             compatibility,
             baseline: None,
             only: Vec::new(),
+            consumers: Vec::new(),
         }
     }
 }
@@ -80,6 +81,7 @@ pub const TOOL_NAMES: &[&str] = &[
     "compare_contracts",
     "explain_rule",
     "check_repository",
+    "who_consumes",
 ];
 
 // ── check_change ────────────────────────────────────────────────────────────
@@ -136,8 +138,109 @@ pub fn check_change(context: &Context, args: CheckChangeArgs) -> ToolResult {
         .map_err(|error| ToolFailure::new(format!("the baseline did not parse: {error}")))?;
 
     let level = level.unwrap_or_else(|| contract.effective_compatibility(&config.defaults));
-    let findings = evaluate_pair(&base, &head, &contract.name, level);
+    let mut findings = evaluate_pair(&base, &head, &contract.name, level);
+    // The same `affects` list `brake check` renders: an agent asking whether a
+    // change is safe wants the name of who it breaks, not just the rule.
+    let bound = bind_declared(&context.repo_root, &config, &contract.name, &head);
+    crate::demand::policy::attribute(&mut findings, &bound);
     Ok(render_findings(&findings, level, 1))
+}
+
+/// Every declared consumer of one contract, bound to a contract document.
+fn bind_declared(
+    repo_root: &Path,
+    config: &Config,
+    contract: &str,
+    document: &crate::Contract,
+) -> Vec<crate::demand::load::BoundConsumer> {
+    crate::demand::load::load(repo_root, config)
+        .declared
+        .iter()
+        .filter(|declared| declared.provider == contract)
+        .map(|declared| declared.bind(document))
+        .collect()
+}
+
+// ── who_consumes ────────────────────────────────────────────────────────────
+
+#[derive(Debug, Default, Deserialize)]
+pub struct WhoConsumesArgs {
+    /// Which configured contract. Required only when more than one is
+    /// declared.
+    #[serde(default)]
+    pub contract: Option<String>,
+    /// `GET /payments/{id}`, or just the path. Omit for every endpoint.
+    #[serde(default)]
+    pub endpoint: Option<String>,
+    /// A field, status, parameter or media type. Omit for the whole endpoint.
+    #[serde(default)]
+    pub field: Option<String>,
+}
+
+/// Who declared that they consume this endpoint or field.
+///
+/// The most valuable thing here for an agent: it can ask who reads a field
+/// *before* writing the edit, rather than being told afterwards by a hook.
+pub fn who_consumes(context: &Context, args: WhoConsumesArgs) -> ToolResult {
+    let config = load_config(&context.repo_root)?;
+    let contract = select_contract(&config, args.contract.as_deref())?;
+    let source = check::display_path(&contract.source);
+    let bytes = std::fs::read(context.repo_root.join(&contract.source))
+        .map_err(|error| ToolFailure::new(format!("cannot read `{source}`: {error}")))?;
+    let document = crate::parse(contract.format, &source, &bytes)
+        .map_err(|error| ToolFailure::new(format!("`{source}` did not parse: {error}")))?;
+
+    let wanted = args.endpoint.as_deref().map(str::trim);
+    let bound = bind_declared(&context.repo_root, &config, &contract.name, &document);
+
+    let mut consumers = Vec::new();
+    for consumer in &bound {
+        let mut uses = Vec::new();
+        for (key, usages) in &consumer.usage_index {
+            if let Some(wanted) = wanted
+                && !matches_endpoint(wanted, key)
+            {
+                continue;
+            }
+            if let Some(field) = &args.field
+                && !usages.subjects.contains(field)
+            {
+                continue;
+            }
+            uses.push(json!({
+                "endpoint": format!("{} {}", key.method, key.path),
+                "statuses": usages.statuses.iter().collect::<Vec<_>>(),
+                "reads": usages.reads.iter().collect::<Vec<_>>(),
+                "sends": usages.sends.iter().collect::<Vec<_>>(),
+                "declared_at": format!("{}:{}", consumer.source, usages.span.line),
+            }));
+        }
+        if uses.is_empty() {
+            continue;
+        }
+        consumers.push(json!({
+            "consumer": consumer.consumer,
+            "source": consumer.source,
+            "uses": uses,
+        }));
+    }
+
+    Ok(json!({
+        "contract": contract.name,
+        "endpoint": args.endpoint,
+        "field": args.field,
+        "consumers": consumers,
+        "declared_consumers": bound.len(),
+        // Without this the answer reads as a census, and it is a list of files
+        // somebody remembered to declare.
+        "note": CENSUS_CAVEAT,
+    }))
+}
+
+/// `GET /payments/{id}`, or a bare path.
+fn matches_endpoint(wanted: &str, key: &crate::contract::EndpointKey) -> bool {
+    let full = format!("{} {}", key.method, key.path);
+    wanted.eq_ignore_ascii_case(&full) || wanted == key.path
 }
 
 // ── compare_contracts ───────────────────────────────────────────────────────
@@ -241,6 +344,12 @@ pub const RESOURCES: &[(&str, &str)] = &[
         "brake://config",
         "The resolved brake.toml for the repository the server was started in.",
     ),
+    (
+        "brake://consumers",
+        "The declared consumers of each contract, with the file and content \
+         digest each declaration came from. brake knows about the consumers \
+         declared in brake.toml and no others.",
+    ),
 ];
 
 pub fn read_resource(context: &Context, uri: &str) -> Result<String, ToolFailure> {
@@ -298,6 +407,17 @@ pub fn read_resource(context: &Context, uri: &str) -> Result<String, ToolFailure
                 "note": "`compare_contracts` needs no configuration and works on two documents.",
             }),
         })),
+        "brake://consumers" => Ok(match load_config(&context.repo_root) {
+            Ok(config) => {
+                let inventory =
+                    crate::demand::inventory::build(&context.repo_root, &config, &[], &[]);
+                crate::demand::inventory::render_json(&inventory)
+            }
+            Err(failure) => pretty(&json!({
+                "configured": false,
+                "reason": failure.message,
+            })),
+        }),
         // A URI outside the served set is refused rather than treated as a
         // path: this server reads contracts, not arbitrary files.
         other => Err(ToolFailure::new(format!(
@@ -379,6 +499,9 @@ pub fn review_api_change(context: &Context, args: ReviewPromptArgs) -> Result<St
 }
 
 // ── shared shaping ──────────────────────────────────────────────────────────
+
+const CENSUS_CAVEAT: &str = "brake knows about the consumers declared in brake.toml and no others; an empty \
+     answer is not proof that nobody uses this";
 
 const CHOICE_IS_NOT_BRAKES: &str = "which strategy fits depends on whether you control every consumer and whether you \
      have a version scheme; brake can see neither, and does not choose";
@@ -467,6 +590,15 @@ fn finding_json(finding: &Finding) -> Value {
                 "strategy": item.strategy,
                 "summary": item.summary,
                 "cost": item.cost,
+            }))
+            .collect::<Vec<_>>(),
+        "affects": finding
+            .affects
+            .iter()
+            .map(|reference| json!({
+                "consumer": reference.consumer,
+                "source": reference.source,
+                "line": reference.span.line,
             }))
             .collect::<Vec<_>>(),
     });
@@ -712,6 +844,29 @@ pub fn tool_schemas() -> BTreeMap<&'static str, Value> {
                 },
             }),
         ),
+        (
+            "who_consumes",
+            json!({
+                "type": "object",
+                "properties": {
+                    "contract": {
+                        "type": "string",
+                        "description": "Which contract in brake.toml. Required \
+            only when more than one is configured.",
+                    },
+                    "endpoint": {
+                        "type": "string",
+                        "description": "`GET /payments/{id}`, or just the path. \
+            Omit for every endpoint the contract documents.",
+                    },
+                    "field": {
+                        "type": "string",
+                        "description": "A response field, request field, status \
+            code, parameter or media type. Omit for the whole endpoint.",
+                    },
+                },
+            }),
+        ),
     ])
 }
 
@@ -740,6 +895,13 @@ the change it flags without breaking a consumer. Omit the rule id to list them a
             "Check every API contract configured in this repository against its \
 baseline. Answers 'what is our compatibility posture?' rather than 'is this \
 change safe?'.",
+        ),
+        (
+            "who_consumes",
+            "Name the declared consumers of an endpoint or a field, with the \
+interaction that declares it. Call this BEFORE proposing the removal or rename \
+of anything in a contract: it answers who breaks, while the edit can still be \
+reconsidered. An empty answer means nobody *declared* it, not that nobody uses it.",
         ),
     ])
 }

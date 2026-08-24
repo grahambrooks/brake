@@ -44,6 +44,16 @@ Run `brake explain <rule-id>` to read any of this at the moment you are blocked 
 | [`contract-new`](#contract-new) | info | `wire` | A contract has no previous version in the baseline. |
 | [`contract-unconfigured`](#contract-unconfigured) | info | `wire` | A file that looks like an API contract is not declared in brake.toml. |
 | [`generated-drift`](#generated-drift) | error | `wire` | Generated contract output differs from the checked-in artifact. |
+| [`consumer-endpoint-unmet`](#consumer-endpoint-unmet) | error | `wire` | A declared consumer calls an endpoint the contract does not document. |
+| [`consumer-status-unmet`](#consumer-status-unmet) | error | `wire-json` | A declared consumer expects a response the contract does not document — a status code, or that status in the media type the consumer reads. |
+| [`consumer-field-unmet`](#consumer-field-unmet) | error | `wire-json` | A declared consumer reads a response field the contract does not produce. |
+| [`consumer-request-rejected`](#consumer-request-rejected) | error | `wire` | The contract would reject a request a declared consumer sends. |
+| [`consumer-unreachable`](#consumer-unreachable) | error | `wire` | A declared consumer source does not resolve or fails to parse. |
+| [`consumer-partial`](#consumer-partial) | warning | `wire` | An interaction contains a construct brake cannot model. |
+| [`consumer-path-ambiguous`](#consumer-path-ambiguous) | warning | `wire` | A consumer's concrete path matches more than one contract template. |
+| [`consumer-provider-unmatched`](#consumer-provider-unmatched) | error | `wire` | A consumer declaration names a provider no `[[contract]]` declares. |
+| [`consumer-undeclared`](#consumer-undeclared) | info | `wire` | A file parses as a consumer declaration but brake.toml does not declare it. |
+| [`consumer-surface-unused`](#consumer-surface-unused) | info | `wire` | No declared consumer uses this endpoint. |
 
 ## endpoint-removed
 
@@ -504,3 +514,111 @@ brake only checks what it is told about. A new OpenAPI, proto or GraphQL file th
 Severity `error`, fires from `wire` upward.
 
 The committed contract no longer matches what the code produces, so every check brake ran was against a stale document. Regenerate and commit the result.
+
+## consumer-endpoint-unmet
+
+**A declared consumer calls an endpoint the contract does not document.**
+
+Severity `error`, fires from `wire` upward.
+
+The consumer's own tests record a call this contract has no operation for, so either the contract is missing something that is live in production or the consumer is calling something that never existed. Unlike every other rule here this one needs no baseline: it compares the contract as it is now against what a consumer says it relies on, which is why it fires on a brand-new contract with no history at all.
+
+**Ways to make the change safely.** brake names these and does not choose between them: which one fits depends on whether you control every consumer and whether you have a version scheme, and it can see neither.
+
+- **`document-the-endpoint`** — document the endpoint in the contract, since a consumer is calling it already — an undocumented endpoint is one nothing gates
+  *Costs:* documenting it is also committing to it
+- **`confirm-intended`** — confirm this was deliberate — if it was, record why in a `[[contract.allow]]` entry so the next reviewer does not have to work it out
+  *Costs:* none, but it is a decision someone has to actually make
+
+## consumer-status-unmet
+
+**A declared consumer expects a response the contract does not document — a status code, or that status in the media type the consumer reads.**
+
+Severity `error`, fires from `wire-json` upward.
+
+The consumer has a branch for a response the contract says cannot happen. Either it can, and the contract is wrong, or it cannot, and the consumer has dead code sitting on an error path. brake matches the consumer's status against the documented `4XX` and `default` classes before reporting, so a contract that documents the class is satisfied.
+
+**Ways to make the change safely.** brake names these and does not choose between them: which one fits depends on whether you control every consumer and whether you have a version scheme, and it can see neither.
+
+- **`keep-emitting`** — go on producing the field alongside whatever replaces it, so existing readers keep working
+  *Costs:* the response carries a field you have stopped using
+- **`confirm-intended`** — confirm this was deliberate — if it was, record why in a `[[contract.allow]]` entry so the next reviewer does not have to work it out
+  *Costs:* none, but it is a decision someone has to actually make
+
+## consumer-field-unmet
+
+**A declared consumer reads a response field the contract does not produce.**
+
+Severity `error`, fires from `wire-json` upward.
+
+This is the finding the whole consumer-demand input exists for: not 'this might break somebody' but 'this breaks web-checkout, at pacts/web-checkout-payments.json:88'. The span points at the interaction that declares the expectation, because that is the evidence — the contract line is where you would make the change, and the pact line is why you have to.
+
+**Ways to make the change safely.** brake names these and does not choose between them: which one fits depends on whether you control every consumer and whether you have a version scheme, and it can see neither.
+
+- **`keep-emitting`** — go on producing the field alongside whatever replaces it, so existing readers keep working
+  *Costs:* the response carries a field you have stopped using
+- **`deprecate-then-remove`** — mark the field deprecated now and remove it in a later release, once consumers have had a version to migrate
+  *Costs:* the removal waits for a deprecation window you have to actually observe
+
+## consumer-request-rejected
+
+**The contract would reject a request a declared consumer sends.**
+
+Severity `error`, fires from `wire` upward.
+
+A required field or parameter the consumer omits, a value outside a narrowed type, or a media type no longer accepted. The consumer is not hypothetical here: it sends this request today, and the contract as written says the request is invalid.
+
+**Ways to make the change safely.** brake names these and does not choose between them: which one fits depends on whether you control every consumer and whether you have a version scheme, and it can see neither.
+
+- **`widen-dont-narrow`** — accept both the old and the new form of the field and normalise them inside the handler
+  *Costs:* the handler carries the union until the old form is retired
+- **`optional-with-default`** — keep the field optional and give it a default, then require it in a later release once callers send it
+  *Costs:* the default has to be a value that is correct for existing callers
+
+## consumer-unreachable
+
+**A declared consumer source does not resolve or fails to parse.**
+
+Severity `error`, fires from `wire` upward.
+
+A consumer declaration that cannot be read cannot be verified, and reporting clean would be reporting a verification that did not happen. The CI workflow where a prior step pulls pacts from a broker rests entirely on this: a failed pull leaves the declared file absent, and that has to be loud rather than clean.
+
+## consumer-partial
+
+**An interaction contains a construct brake cannot model.**
+
+Severity `warning`, fires from `wire` upward.
+
+A plugin-backed content type, an `arrayContains` matcher, a message interaction that constrains a broker topic rather than an HTTP surface. The interaction is named with its pointer rather than skipped, so the verdict says 'not fully verified' instead of 'clean'. A tool that silently ignores what it cannot parse manufactures confidence.
+
+## consumer-path-ambiguous
+
+**A consumer's concrete path matches more than one contract template.**
+
+Severity `warning`, fires from `wire` upward.
+
+`/payments/status` matches both `/payments/{id}` and `/payments/status` when neither is more literal than the other, so the expectation was not verified against either. brake never guesses here: a guessed binding attributes a break to the wrong endpoint, which is worse than declining to attribute it.
+
+## consumer-provider-unmatched
+
+**A consumer declaration names a provider no `[[contract]]` declares.**
+
+Severity `error`, fires from `wire` upward.
+
+A configuration error rather than a compatibility one: the declaration was read and there is nothing to check it against, so the consumer it names is unguarded. Either the provider name in the artifact does not match the contract name in brake.toml, or the contract it constrains is not declared at all.
+
+## consumer-undeclared
+
+**A file parses as a consumer declaration but brake.toml does not declare it.**
+
+Severity `info`, fires from `wire` upward.
+
+brake only checks what it is told about, and a pact sitting in the tree that no `[[consumer]]` declares is a consumer nobody is protecting. Identified by parsing, never by filename: the first version of contract detection called `.github/workflows/api-tests.yaml` an API, and a heuristic that called a fixture a pact would be the same mistake with a new file extension.
+
+## consumer-surface-unused
+
+**No declared consumer uses this endpoint.**
+
+Severity `info`, fires from `wire` upward.
+
+The one rule here that reports a suspected *absence*, which the thesis forbids at commit time — so it is excluded from `check` and emitted by `analyze` and `brake consumers` only, and then only under an explicit `completeness = "closed-world"` declaration. Without that declaration it would be a confident statement about consumers brake has never heard of.

@@ -9,8 +9,10 @@ use std::time::{Duration, Instant};
 use crate::Severity;
 use crate::baseline::{self, BaselineError};
 use crate::compare;
-use crate::config::{Config, ContractConfig, ContractFormat, Defaults};
+use crate::config::{Completeness, Config, ContractConfig, ContractFormat, Defaults};
 use crate::contract::{self, Contract};
+use crate::demand::load::BoundConsumer;
+use crate::demand::{self, policy};
 use crate::report::{Report, Unavailable};
 use crate::rules::{self, Finding};
 
@@ -52,6 +54,9 @@ pub struct Options {
     pub baseline: Option<crate::config::Baseline>,
     /// Restrict to these contract names.
     pub only: Vec<String>,
+    /// Restrict to these consumer names — `--consumer`, which mirrors
+    /// `--contract`. Empty means every declared consumer.
+    pub consumers: Vec<String>,
 }
 
 /// Run a check over the given scope.
@@ -85,8 +90,130 @@ pub fn check(repo_root: &Path, config: &Config, scope: &Scope, options: &Options
         ));
     }
     report.findings.extend(selected.notices);
+
+    // Demand is the third input, and it is compared against `head` only: a
+    // consumer's expectation is a statement about the contract as it is now,
+    // so no baseline is involved. See design/05-consumer-demand.md §4.
+    let demand = demand_pass(repo_root, config, &selected.contracts, scope, options);
+    report.findings.extend(demand.findings);
+    report.sources.extend(demand.sources);
+
+    // Attribution is evidence attached to a finding, not a second finding —
+    // §6.4. Every existing rule gains an `affects` list, and that is the whole
+    // change.
+    policy::attribute(&mut report.findings, &demand.bound);
+    report.findings = policy::apply(
+        std::mem::take(&mut report.findings),
+        config.consumer_options,
+        demand.declared,
+    );
+
     report.finalise();
     report
+}
+
+/// What the demand axis contributed to a run.
+#[derive(Debug, Default)]
+struct DemandPass {
+    findings: Vec<Finding>,
+    sources: BTreeMap<String, String>,
+    /// Every declared consumer, bound, for the attribution join.
+    bound: Vec<BoundConsumer>,
+    /// How many declarations were read — the number the `triage` note prints,
+    /// so a downgrade always states what it rests on.
+    declared: usize,
+}
+
+fn demand_pass(
+    repo_root: &Path,
+    config: &Config,
+    selected: &[&ContractConfig],
+    scope: &Scope,
+    options: &Options,
+) -> DemandPass {
+    let mut pass = DemandPass::default();
+    if config.consumers.is_empty() {
+        // Nothing declared, so there is nothing to verify and nothing to
+        // attribute. The undeclared sweep below is still worth running: a pact
+        // in the tree that nothing declares is the gap this rule exists for.
+        pass.findings
+            .extend(undeclared_notices(repo_root, config, scope));
+        return pass;
+    }
+
+    let loaded = demand::load::load(repo_root, config);
+    pass.findings.extend(loaded.findings.clone());
+    pass.sources.extend(loaded.sources.clone());
+
+    let wanted = |consumer: &str| {
+        options.consumers.is_empty() || options.consumers.iter().any(|name| name == consumer)
+    };
+    let declared: Vec<_> = loaded
+        .declared
+        .iter()
+        .filter(|declared| wanted(&declared.consumer))
+        .collect();
+    pass.declared = declared.len();
+
+    for contract in selected {
+        if !options.only.is_empty() && !options.only.contains(&contract.name) {
+            continue;
+        }
+        let source = display_path(&contract.source);
+        let Ok(bytes) = fs::read(repo_root.join(&contract.source)) else {
+            continue;
+        };
+        let Ok(head) = ingest(contract.format, &source, &bytes) else {
+            // `contract-unreachable` is already on the report from the
+            // baseline pass; reporting it twice would read as two problems.
+            continue;
+        };
+
+        let mut bound_here = Vec::new();
+        for entry in &declared {
+            if entry.provider != contract.name {
+                continue;
+            }
+            pass.findings
+                .extend(demand::verify::verify(&entry.demand, &contract.name, &head));
+            bound_here.push(entry.bind(&head));
+        }
+
+        // The one rule that reports a suspected absence, which the thesis
+        // forbids at commit time. `analyze` and `brake consumers` only, and
+        // only under an explicit closed-world declaration.
+        if matches!(scope, Scope::All)
+            && config.consumer_options.completeness == Completeness::ClosedWorld
+        {
+            pass.findings.extend(policy::unused_surface(
+                &contract.name,
+                head.endpoints.keys().cloned(),
+                &bound_here,
+            ));
+        }
+        pass.bound.extend(bound_here);
+    }
+
+    pass.findings
+        .extend(undeclared_notices(repo_root, config, scope));
+    pass
+}
+
+/// Files in the tree that parse as a demand and nothing declares.
+fn undeclared_notices(repo_root: &Path, config: &Config, scope: &Scope) -> Vec<Finding> {
+    match scope {
+        Scope::Paths(paths) => {
+            let wanted: Vec<String> = paths
+                .iter()
+                .map(|path| normalise_against_root(repo_root, path))
+                .collect();
+            demand::load::undeclared(repo_root, config, Some(&wanted))
+        }
+        Scope::All => demand::load::undeclared(repo_root, config, None),
+        // A `--since` run is scoped to what changed, and walking the whole
+        // tree for it would report files the change never touched.
+        Scope::Since(_) => Vec::new(),
+    }
 }
 
 /// Check one contract against its baseline.
@@ -271,10 +398,20 @@ fn select_by_path<'a>(repo_root: &Path, config: &'a Config, paths: &[PathBuf]) -
         .map(|path| normalise_against_root(repo_root, path))
         .collect::<Vec<_>>();
 
+    // A path scope that names a consumer declaration selects the contracts
+    // that declaration constrains, so a hook run on a pact-updating commit
+    // verifies the right thing rather than nothing.
+    let via_demand: std::collections::BTreeSet<String> = wanted
+        .iter()
+        .flat_map(|path| demand::load::providers_for_path(repo_root, config, path))
+        .collect();
+
     let contracts = config
         .contracts
         .iter()
-        .filter(|contract| wanted.contains(&display_path(&contract.source)))
+        .filter(|contract| {
+            wanted.contains(&display_path(&contract.source)) || via_demand.contains(&contract.name)
+        })
         .collect::<Vec<_>>();
 
     let mut notices = Vec::new();
@@ -283,6 +420,11 @@ fn select_by_path<'a>(repo_root: &Path, config: &'a Config, paths: &[PathBuf]) -
             .contracts
             .iter()
             .any(|contract| &display_path(&contract.source) == path);
+        // A consumer declaration is not an unconfigured contract; the
+        // `consumer-undeclared` sweep is what reports those.
+        if !configured && demand::identify(&repo_root.join(path)).is_some() {
+            continue;
+        }
         if !configured && looks_like_a_contract(repo_root, path) {
             notices.push(rules::about_file(
                 "contract-unconfigured",
@@ -471,6 +613,8 @@ fn run_drift(
         return Ok(None);
     }
     Ok(Some(rules::Finding {
+        affects: Vec::new(),
+        note: None,
         rule_id: "generated-drift",
         severity: Severity::Error,
         contract: contract.name.clone(),
@@ -576,6 +720,7 @@ paths:
                 baseline: None,
             },
             contracts,
+            ..Config::default()
         }
     }
 

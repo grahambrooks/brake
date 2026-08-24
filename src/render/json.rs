@@ -40,6 +40,20 @@ pub fn render(report: &Report) -> String {
                     }))
                     .collect::<Vec<_>>(),
                 "help_uri": catalogue::lookup(finding.rule_id).map(catalogue::Rule::help_uri),
+                // Declared consumers this finding is evidence against, with
+                // the interaction that says so. Empty when no consumer is
+                // declared *and* when none is affected: `note` is what tells
+                // the two apart.
+                "affects": finding
+                    .affects
+                    .iter()
+                    .map(|reference| json!({
+                        "consumer": reference.consumer,
+                        "source": reference.source,
+                        "line": reference.span.line,
+                    }))
+                    .collect::<Vec<_>>(),
+                "note": finding.note,
             })
         })
         .collect::<Vec<_>>();
@@ -84,6 +98,8 @@ mod tests {
     fn report() -> Report {
         Report::new(
             vec![Finding {
+                affects: Vec::new(),
+                note: None,
                 rule_id: "response-field-removed",
                 severity: Severity::Error,
                 contract: "payments".to_owned(),

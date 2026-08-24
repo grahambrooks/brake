@@ -217,7 +217,8 @@ fn the_server_initializes_and_advertises_its_surface() {
             "check_change",
             "compare_contracts",
             "explain_rule",
-            "check_repository"
+            "check_repository",
+            "who_consumes"
         ]
     );
 
@@ -240,6 +241,7 @@ fn the_server_initializes_and_advertises_its_surface() {
     assert!(uris.contains(&"brake://rules"));
     assert!(uris.contains(&"brake://strategies"));
     assert!(uris.contains(&"brake://config"));
+    assert!(uris.contains(&"brake://consumers"));
 
     let prompts = client.request("prompts/list", json!({}));
     assert_eq!(prompts["prompts"][0]["name"], "review-api-change");
@@ -495,6 +497,13 @@ fn no_tool_call_can_execute_a_declared_generator() {
         }),
     );
     client.request("resources/read", json!({ "uri": "brake://config" }));
+    // And the demand surface, with arguments an agent might try to smuggle a
+    // generator through.
+    client.call_tool(
+        "who_consumes",
+        json!({ "contract": "payments", "field": "customer_id", "drift": true }),
+    );
+    client.request("resources/read", json!({ "uri": "brake://consumers" }));
 
     assert!(
         !witness.exists(),
@@ -577,4 +586,135 @@ fn explain_rule_reaches_the_whole_catalogue() {
 
     let unknown = client.call_tool("explain_rule", json!({ "rule": "no-such-rule" }));
     assert_eq!(unknown["isError"], true);
+}
+
+/// A repository whose contract has a declared consumer.
+fn with_a_consumer() -> TempDir {
+    repo(&[
+        (
+            "brake.toml",
+            "[[contract]]\nname=\"payments\"\nformat=\"openapi\"\nsource=\"api/c.yaml\"\n\
+             baseline={file=\"api/c.baseline.yaml\"}\n\
+             \n[[consumer]]\nformat=\"pact\"\nsource=\"pacts/web-checkout.json\"\n",
+        ),
+        ("api/c.baseline.yaml", BASE),
+        ("api/c.yaml", BASE),
+        ("pacts/web-checkout.json", PACT),
+    ])
+}
+
+const PACT: &str = r#"{
+  "consumer": { "name": "web-checkout" },
+  "provider": { "name": "payments" },
+  "interactions": [
+    {
+      "description": "a request for payment 42",
+      "request": { "method": "GET", "path": "/payments/42" },
+      "response": {
+        "status": 200,
+        "headers": { "Content-Type": "application/json" },
+        "body": { "id": "42", "customer_id": "c-1" }
+      }
+    }
+  ]
+}"#;
+
+#[test]
+fn who_consumes_answers_before_the_edit_is_written() {
+    let repo = with_a_consumer();
+    let mut client = Client::start(repo.path());
+
+    let answer = client.call_tool(
+        "who_consumes",
+        json!({ "contract": "payments", "field": "customer_id" }),
+    )["structuredContent"]
+        .clone();
+
+    assert_eq!(answer["consumers"][0]["consumer"], "web-checkout");
+    assert_eq!(
+        answer["consumers"][0]["uses"][0]["endpoint"],
+        "GET /payments/{id}"
+    );
+    assert!(
+        answer["consumers"][0]["uses"][0]["declared_at"]
+            .as_str()
+            .is_some_and(|at| at.starts_with("pacts/web-checkout.json:")),
+        "the interaction that declares it is the whole point: {answer}"
+    );
+    // An empty answer must never read as "nobody uses this".
+    assert!(
+        answer["note"]
+            .as_str()
+            .is_some_and(|note| note.contains("no others")),
+        "{answer}"
+    );
+}
+
+#[test]
+fn who_consumes_says_nothing_it_cannot_support() {
+    let repo = with_a_consumer();
+    let mut client = Client::start(repo.path());
+
+    let answer = client.call_tool(
+        "who_consumes",
+        json!({ "contract": "payments", "field": "never_declared" }),
+    )["structuredContent"]
+        .clone();
+    assert_eq!(
+        answer["consumers"].as_array().map(Vec::len),
+        Some(0),
+        "{answer}"
+    );
+    assert_eq!(answer["declared_consumers"], 1, "{answer}");
+}
+
+#[test]
+fn check_change_names_who_a_break_reaches() {
+    let repo = with_a_consumer();
+    let mut client = Client::start(repo.path());
+
+    let verdict = client.call_tool(
+        "check_change",
+        json!({ "format": "openapi", "proposed": HEAD_BREAKS, "contract": "payments" }),
+    )["structuredContent"]
+        .clone();
+
+    let removal = verdict["findings"]
+        .as_array()
+        .expect("findings")
+        .iter()
+        .find(|finding| finding["rule"] == "response-field-removed")
+        .unwrap_or_else(|| panic!("expected a removal: {verdict}"));
+    assert_eq!(removal["affects"][0]["consumer"], "web-checkout");
+    assert_eq!(removal["affects"][0]["source"], "pacts/web-checkout.json");
+}
+
+#[test]
+fn the_consumers_resource_is_the_inventory_and_says_what_it_is_not() {
+    let repo = with_a_consumer();
+    let mut client = Client::start(repo.path());
+
+    let resource = client.request("resources/read", json!({ "uri": "brake://consumers" }));
+    let text = resource["contents"][0]["text"]
+        .as_str()
+        .expect("resource text");
+    let value: Value = serde_json::from_str(text).expect("valid JSON");
+
+    assert_eq!(value["contracts"][0]["name"], "payments");
+    assert_eq!(
+        value["contracts"][0]["consumers"][0]["consumer"],
+        "web-checkout"
+    );
+    assert!(
+        value["contracts"][0]["consumers"][0]["digest"]
+            .as_str()
+            .is_some_and(|digest| digest.starts_with("sha256:")),
+        "{value}"
+    );
+    assert!(
+        value["note"]
+            .as_str()
+            .is_some_and(|note| note.contains("no others")),
+        "{value}"
+    );
 }

@@ -69,8 +69,12 @@ Pronounced like the thing it prevents.
 ## Status
 
 **Working.** OpenAPI 3.0/3.1, protobuf 3 and GraphQL SDL are all ingested and
-compared through one ruleset; `check`, `analyze`, `diff` and `explain` are
-implemented, with text, JSON and SARIF output.
+compared through one ruleset; `check`, `analyze`, `diff`, `explain` and
+`consumers` are implemented, with text, JSON and SARIF output.
+
+Consumer declarations — pact files, GraphQL operation documents, native
+manifests — are a third input, so a finding can name *who* it breaks rather
+than reporting that somebody might be.
 
 Read [design/01-thesis.md](design/01-thesis.md) first — it carries the product
 claim and, more usefully, the list of things deliberately not being built.
@@ -126,8 +130,38 @@ brake check api/payments-openapi.yaml   # at commit time, scoped to the change
 brake check --since origin/main         # on a pull request
 brake analyze .                         # everything, in CI
 brake diff                              # describe the change, never fail
+brake consumers                         # who uses what, and what of it
 brake explain response-field-removed    # why a rule exists
 ```
+
+## Naming who a change breaks
+
+Declare what your consumers actually use and `brake` stops reporting that a
+change *might* break somebody:
+
+```toml
+[[consumer]]
+format = "pact"                                  # or graphql-operations, or manifest
+source = "pacts/web-checkout-payments.json"      # globs allowed, sorted before use
+```
+
+```
+error[response-field-removed]: response field `customer_id` was removed
+  --> api/payments-openapi.yaml:142:9
+   |
+   = note: breaks web-checkout — pacts/web-checkout-payments.json:88
+```
+
+A declaration is a file, and `brake` already reads files: nothing here adds a
+network call, a subprocess or a server. It never fetches a pact from a broker —
+have CI write the directory and point `source` at the path. A declared file that
+is absent is `consumer-unreachable` and exit `1`, loud rather than clean.
+
+**A green `brake` run is not a passing pact verification, and is never reported
+as one.** `brake` checks that the *specification* still satisfies what consumers
+declared; whether the implementation matches its own specification is what
+`--drift` and your test suite are for. See
+[design/05-consumer-demand.md](design/05-consumer-demand.md).
 
 As a pre-commit hook, in another repository:
 
@@ -259,12 +293,17 @@ regenerate after a refactor.
 
 - **Not a spec linter.** Style rules are `vacuum` and `spectral`'s job. If a
   rule cannot break a consumer, it is out of scope.
-- **Not a runtime contract tester.** Pact-style verification needs both sides
-  running. `brake` never issues a request.
+- **Not a runtime contract tester.** `brake` reads a pact; it never replays one.
+  Provider verification needs both sides running, and `brake` never issues a
+  request.
+- **Not a broker client, and not a pact generator.** No `can-i-deploy`, no
+  environments, no deployment state. `brake` reads consumer declarations and
+  never writes one.
 - **Not a code generator.** It gates `progenitor` and `utoipa` output for drift;
   it does not replace them.
-- **Not a registry.** No version history, no server, no `can-i-deploy`. The
-  baseline is a file or a git ref, resolved locally.
+- **Not a registry.** No version history, no server, no stored expectation
+  timeline. The baseline is a file or a git ref, and a consumer declaration is a
+  file in the tree — both resolved locally.
 
 ## Library
 

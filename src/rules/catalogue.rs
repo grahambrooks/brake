@@ -20,6 +20,15 @@ pub struct Rule {
     /// downgraded to a warning, because a warning is a thing a human has to
     /// read and dismiss.
     pub level: Compatibility,
+    /// Can a consumer declaration see this break at all?
+    ///
+    /// A pact says nothing about `operation-id-changed`,
+    /// `security-scheme-changed` or `path-parameter-renamed`: those break
+    /// generated client *code*, which no consumer declaration models. Only a
+    /// rule marked here may be downgraded by the `triage` policy, because
+    /// downgrading on the strength of demand's silence is only honest where
+    /// demand could have spoken. See `design/05-consumer-demand.md` §7.2.
+    pub observable_by_demand: bool,
     pub summary: &'static str,
     pub explanation: &'static str,
     /// Ways to make the same change without breaking a consumer, most
@@ -48,6 +57,7 @@ pub static RULES: &[Rule] = &[
         id: "endpoint-removed",
         severity: Severity::Error,
         level: Compatibility::Wire,
+        observable_by_demand: true,
         summary: "A baseline endpoint is absent in the head contract.",
         explanation: "Every consumer that still calls this endpoint now gets a 404. There is no \
 version of this change that an existing caller survives, which is why it fires at every \
@@ -63,6 +73,7 @@ remove it afterwards.",
         id: "method-removed",
         severity: Severity::Error,
         level: Compatibility::Wire,
+        observable_by_demand: true,
         summary: "A method on a surviving path is absent in the head contract.",
         explanation: "The path still answers, so a consumer gets a 405 rather than a 404 — which \
 is harder to diagnose, because the endpoint looks alive. Treat it exactly like an endpoint \
@@ -77,6 +88,7 @@ removal: deprecate first.",
         id: "endpoint-path-changed",
         severity: Severity::Error,
         level: Compatibility::Wire,
+        observable_by_demand: true,
         summary: "An operationId survived but its path template changed.",
         explanation: "The operation still exists, so this reads as a rename rather than a \
 removal — but a consumer is pinned to the old URL and does not know about the new one. If both \
@@ -87,6 +99,7 @@ paths must work, serve both for a release rather than moving the operation in on
         id: "path-parameter-renamed",
         severity: Severity::Error,
         level: Compatibility::Surface,
+        observable_by_demand: false,
         summary: "A path template kept its shape but renamed a parameter.",
         explanation: "The URL a consumer builds is unchanged, so nothing breaks on the wire. \
 Generated clients are a different matter: the parameter name becomes an argument name, so \
@@ -98,6 +111,7 @@ rule and not a `wire` one.",
         id: "operation-id-changed",
         severity: Severity::Error,
         level: Compatibility::Surface,
+        observable_by_demand: false,
         summary: "An endpoint kept its path and method but changed its operationId.",
         explanation: "Nothing changes on the wire. Code generators derive method names from \
 operationId, so this renames a function in every generated client — a compile error for \
@@ -108,6 +122,7 @@ consumers, and invisible to anyone testing over HTTP.",
         id: "endpoint-added",
         severity: Severity::Warning,
         level: Compatibility::Strict,
+        observable_by_demand: false,
         summary: "A new endpoint appeared.",
         explanation: "Purely additive, and safe for every consumer. It fires only under `strict`, \
 where the contract is frozen and any change at all needs to be a deliberate, reviewed act.",
@@ -118,6 +133,7 @@ where the contract is frozen and any change at all needs to be a deliberate, rev
         id: "param-added-required",
         severity: Severity::Error,
         level: Compatibility::Wire,
+        observable_by_demand: true,
         summary: "A new required request parameter or field was added.",
         explanation: "Every existing caller omits it, because it did not exist when they were \
 written. Add it as optional with a default, and require it in a later release once callers \
@@ -128,6 +144,7 @@ have migrated.",
         id: "param-became-required",
         severity: Severity::Error,
         level: Compatibility::Wire,
+        observable_by_demand: true,
         summary: "An optional request parameter or field became required.",
         explanation: "Callers that legitimately omitted it now fail validation. This is the same \
 break as adding a required parameter, arriving by a different route.",
@@ -137,6 +154,7 @@ break as adding a required parameter, arriving by a different route.",
         id: "param-removed",
         severity: Severity::Warning,
         level: Compatibility::WireJson,
+        observable_by_demand: true,
         summary: "A request parameter was removed.",
         explanation: "Whether this breaks a caller depends on the server: an API that ignores \
 unknown parameters tolerates it, and one validating with `additionalProperties: false` rejects \
@@ -148,6 +166,7 @@ one you are.",
         id: "param-type-narrowed",
         severity: Severity::Error,
         level: Compatibility::Wire,
+        observable_by_demand: true,
         summary: "A request parameter or body type stopped accepting values it used to accept.",
         explanation: "Narrowing an input — `string` to `integer`, a smaller `maxLength`, a \
 removed enum member, nullable becoming non-nullable, `additionalProperties` closing — rejects \
@@ -158,6 +177,7 @@ requests that were valid yesterday. Widening an input is always safe; narrowing 
         id: "param-location-changed",
         severity: Severity::Error,
         level: Compatibility::Wire,
+        observable_by_demand: true,
         summary: "A parameter moved between query, path, header or cookie.",
         explanation: "The parameter still exists under the same name, so this is easy to read as \
 a harmless move. It is not: a caller sending it in the old location is now sending an unknown \
@@ -168,6 +188,7 @@ parameter and omitting a known one, at the same time.",
         id: "param-added-optional",
         severity: Severity::Info,
         level: Compatibility::Strict,
+        observable_by_demand: false,
         summary: "A new optional request parameter or field was added.",
         explanation: "Additive and safe: callers that ignore it are unaffected. It fires only \
 under `strict`, where the contract is frozen.",
@@ -177,6 +198,7 @@ under `strict`, where the contract is frozen.",
         id: "request-media-type-removed",
         severity: Severity::Error,
         level: Compatibility::Wire,
+        observable_by_demand: true,
         summary: "A request media type is no longer accepted.",
         explanation: "A caller sending that Content-Type now gets a 415. Dropping XML because \
 'everyone uses JSON' is the usual way this lands, and the callers who did not get the memo are \
@@ -188,6 +210,7 @@ exactly the ones who will not notice until production.",
         id: "response-field-removed",
         severity: Severity::Error,
         level: Compatibility::WireJson,
+        observable_by_demand: true,
         summary: "A field present in a baseline response is gone.",
         explanation: "Any consumer reading that field now gets nothing, and a consumer \
 deserialising into a type with a non-optional field for it fails outright. Deprecate the field \
@@ -203,6 +226,7 @@ never needs a suppression.",
         id: "response-field-optional",
         severity: Severity::Error,
         level: Compatibility::WireJson,
+        observable_by_demand: true,
         summary: "A response field that was always present became optional.",
         explanation: "Nothing was removed, so this looks safe in a diff. But a consumer whose \
 type for this field is non-optional — which is what a generator produces from a `required` \
@@ -214,6 +238,7 @@ happens sometimes, which makes it harder to debug, not easier.",
         id: "response-field-added",
         severity: Severity::Info,
         level: Compatibility::Strict,
+        observable_by_demand: false,
         summary: "A response gained a field.",
         explanation: "Safe for any tolerant reader, and a break only for a consumer that rejects \
 unknown fields. It fires only under `strict`, where the contract is frozen and additions are \
@@ -224,6 +249,7 @@ reviewed too.",
         id: "response-type-changed",
         severity: Severity::Error,
         level: Compatibility::WireJson,
+        observable_by_demand: true,
         summary: "A response type changed incompatibly.",
         explanation: "The bytes a consumer receives no longer match the shape it was written \
 against. Changing a type in place gives consumers no migration window; add a new field \
@@ -238,6 +264,7 @@ alongside the old one and remove the old one after a deprecation period.",
         id: "response-enum-extended",
         severity: Severity::Warning,
         level: Compatibility::WireJson,
+        observable_by_demand: false,
         summary: "A response enum gained a value.",
         explanation: "A tolerant reader copes. A generated Rust or TypeScript client matching \
 exhaustively on the enum does not — it panics, throws, or fails to compile on upgrade. \
@@ -249,6 +276,7 @@ warning here so that teams generating exhaustive clients can raise it deliberate
         id: "response-status-removed",
         severity: Severity::Error,
         level: Compatibility::WireJson,
+        observable_by_demand: true,
         summary: "A documented response status code is gone.",
         explanation: "A consumer with a branch for that status has dead code at best, and at \
 worst is now falling through to an error path for a response it used to handle.",
@@ -258,6 +286,7 @@ worst is now falling through to an error path for a response it used to handle."
         id: "response-status-added",
         severity: Severity::Info,
         level: Compatibility::Strict,
+        observable_by_demand: false,
         summary: "A response gained a documented status code.",
         explanation: "Additive documentation of an outcome that may already have been possible. \
 It fires only under `strict`.",
@@ -267,6 +296,7 @@ It fires only under `strict`.",
         id: "response-media-type-removed",
         severity: Severity::Error,
         level: Compatibility::WireJson,
+        observable_by_demand: true,
         summary: "A response media type is gone.",
         explanation: "A consumer sending an Accept header for that type now gets a 406, or \
 silently receives a format it cannot parse.",
@@ -277,6 +307,7 @@ silently receives a format it cannot parse.",
         id: "field-number-changed",
         severity: Severity::Error,
         level: Compatibility::Wire,
+        observable_by_demand: false,
         summary: "A field kept its name and changed its wire number.",
         explanation: "In protobuf the field number *is* the field: it is what appears on the \
 wire, and the name exists only in the source. Renumbering a field means every already-deployed \
@@ -288,6 +319,7 @@ canonical protobuf break and it is invisible in a name-based diff.",
         id: "field-renamed",
         severity: Severity::Error,
         level: Compatibility::WireJson,
+        observable_by_demand: true,
         summary: "A field kept its wire number and changed its name.",
         explanation: "The binary encoding is unaffected, so this is safe at `wire`. Anything \
 reading the JSON mapping of the message, or any generated struct field, breaks — which is why \
@@ -299,6 +331,7 @@ it fires from `wire-json` upward and not below.",
         id: "security-added",
         severity: Severity::Error,
         level: Compatibility::WireJson,
+        observable_by_demand: false,
         summary: "An endpoint gained a security requirement, or a stronger one.",
         explanation: "Every existing caller is now unauthenticated or under-scoped, and gets a \
 401 or 403. Strengthening authentication is often correct and urgent — but it is a breaking \
@@ -309,6 +342,7 @@ change, and shipping it without telling consumers turns a security improvement i
         id: "security-scheme-changed",
         severity: Severity::Error,
         level: Compatibility::WireJson,
+        observable_by_demand: false,
         summary: "A security scheme's type, transport or flow changed.",
         explanation: "Consumers built credentials for the old scheme. Swapping an API key for \
 OAuth, or moving a token from a header to a cookie, invalidates every one of them.",
@@ -318,6 +352,7 @@ OAuth, or moving a token from a header to a cookie, invalidates every one of the
         id: "security-removed",
         severity: Severity::Warning,
         level: Compatibility::WireJson,
+        observable_by_demand: false,
         summary: "An endpoint lost a security requirement.",
         explanation: "Not a compatibility break — existing callers keep working, and that is \
 precisely the problem. An endpoint that quietly stopped requiring authentication is almost \
@@ -329,6 +364,7 @@ always an accident, and nothing else in the pipeline will notice.",
         id: "removed-without-deprecation",
         severity: Severity::Error,
         level: Compatibility::WireJson,
+        observable_by_demand: true,
         summary: "Something was removed that was not marked deprecated in the baseline.",
         explanation: "This is the rule that makes the rest of the gate humane. The sanctioned \
 path for any removal is deprecate, ship, wait, remove — and a team that follows it never needs \
@@ -340,6 +376,7 @@ true`. If you are seeing this, the removal skipped a step rather than the gate b
         id: "deprecated-no-sunset",
         severity: Severity::Info,
         level: Compatibility::WireJson,
+        observable_by_demand: false,
         summary: "An endpoint is deprecated with no `x-sunset` date.",
         explanation: "A deprecation with no date is a deprecation that never ends, and consumers \
 correctly read it as no reason to move. Give it a date so the eventual removal is something \
@@ -351,6 +388,7 @@ they were told about rather than something that happens to them.",
         id: "contract-unreachable",
         severity: Severity::Error,
         level: Compatibility::Wire,
+        observable_by_demand: false,
         summary: "The configured contract source could not be read or parsed.",
         explanation: "A contract that cannot be read cannot be verified, and reporting clean \
 would be reporting a verification that did not happen. This also covers a `$ref` that resolves \
@@ -362,6 +400,7 @@ them, because remote refs are the largest source of non-determinism in OpenAPI t
         id: "contract-partial",
         severity: Severity::Warning,
         level: Compatibility::Wire,
+        observable_by_demand: false,
         summary: "A compared path contains a construct brake cannot model.",
         explanation: "The comparison happened, but not over the whole payload — so the result is \
 'not fully verified', never 'clean'. A tool that silently ignores what it cannot parse is worse \
@@ -373,6 +412,7 @@ pointer so you can decide whether the unverified part matters.",
         id: "stale-allow",
         severity: Severity::Error,
         level: Compatibility::Wire,
+        observable_by_demand: false,
         summary: "A suppression matches nothing.",
         explanation: "The break it was written for is gone, so the suppression is now a blanket \
 permission for a finding nobody has reviewed. Dead suppressions accumulate into a list that \
@@ -383,6 +423,7 @@ hides live problems, which is the failure mode this rule exists to prevent.",
         id: "expired-allow",
         severity: Severity::Error,
         level: Compatibility::Wire,
+        observable_by_demand: false,
         summary: "A suppression is past its `expires` date.",
         explanation: "The exception was granted until a date, and that date has passed. Either \
 the migration finished and the suppression should go, or it did not and that is worth someone \
@@ -393,6 +434,7 @@ knowing about.",
         id: "baseline-unconfigured",
         severity: Severity::Info,
         level: Compatibility::Wire,
+        observable_by_demand: false,
         summary: "A contract has no baseline, so nothing was compared.",
         explanation: "This is a user who has not opted in, not a broken gate, and the two must \
 never share an exit code. A *missing* baseline — one configured but unresolvable — is a tool \
@@ -404,6 +446,7 @@ over configuration nobody has written yet teaches a team to disable the tool.",
         id: "contract-new",
         severity: Severity::Info,
         level: Compatibility::Wire,
+        observable_by_demand: false,
         summary: "A contract has no previous version in the baseline.",
         explanation: "The contract is new: it does not exist in the baseline, so there is nothing \
 it could have broken. This is deliberately not a tool failure — a `git-merge-base` baseline does \
@@ -415,6 +458,7 @@ file fail CI on the commit that introduces it. The next commit compares normally
         id: "contract-unconfigured",
         severity: Severity::Info,
         level: Compatibility::Wire,
+        observable_by_demand: false,
         summary: "A file that looks like an API contract is not declared in brake.toml.",
         explanation: "brake only checks what it is told about. A new OpenAPI, proto or GraphQL \
 file that no `[[contract]]` declares is silently ungated, and the whole point of a gate is that \
@@ -425,9 +469,134 @@ its coverage is not a matter of luck. Declare it, or move it somewhere the hook 
         id: "generated-drift",
         severity: Severity::Error,
         level: Compatibility::Wire,
+        observable_by_demand: false,
         summary: "Generated contract output differs from the checked-in artifact.",
         explanation: "The committed contract no longer matches what the code produces, so every \
 check brake ran was against a stale document. Regenerate and commit the result.",
+        remedies: &[],
+    },
+    // ── §6 consumer demand, design/05-consumer-demand.md ────────────────────
+    Rule {
+        id: "consumer-endpoint-unmet",
+        severity: Severity::Error,
+        level: Compatibility::Wire,
+        observable_by_demand: false,
+        summary: "A declared consumer calls an endpoint the contract does not document.",
+        explanation: "The consumer's own tests record a call this contract has no operation for, \
+so either the contract is missing something that is live in production or the consumer is \
+calling something that never existed. Unlike every other rule here this one needs no baseline: \
+it compares the contract as it is now against what a consumer says it relies on, which is why \
+it fires on a brand-new contract with no history at all.",
+        remedies: &["document-the-endpoint", "confirm-intended"],
+    },
+    Rule {
+        id: "consumer-status-unmet",
+        severity: Severity::Error,
+        level: Compatibility::WireJson,
+        observable_by_demand: false,
+        summary: "A declared consumer expects a response the contract does not document — a \
+status code, or that status in the media type the consumer reads.",
+        explanation: "The consumer has a branch for a response the contract says cannot happen. \
+Either it can, and the contract is wrong, or it cannot, and the consumer has dead code sitting \
+on an error path. brake matches the consumer's status against the documented `4XX` and \
+`default` classes before reporting, so a contract that documents the class is satisfied.",
+        remedies: &["keep-emitting", "confirm-intended"],
+    },
+    Rule {
+        id: "consumer-field-unmet",
+        severity: Severity::Error,
+        level: Compatibility::WireJson,
+        observable_by_demand: false,
+        summary: "A declared consumer reads a response field the contract does not produce.",
+        explanation: "This is the finding the whole consumer-demand input exists for: not 'this \
+might break somebody' but 'this breaks web-checkout, at pacts/web-checkout-payments.json:88'. \
+The span points at the interaction that declares the expectation, because that is the evidence \
+— the contract line is where you would make the change, and the pact line is why you have to.",
+        remedies: &["keep-emitting", "deprecate-then-remove"],
+    },
+    Rule {
+        id: "consumer-request-rejected",
+        severity: Severity::Error,
+        level: Compatibility::Wire,
+        observable_by_demand: false,
+        summary: "The contract would reject a request a declared consumer sends.",
+        explanation: "A required field or parameter the consumer omits, a value outside a \
+narrowed type, or a media type no longer accepted. The consumer is not hypothetical here: it \
+sends this request today, and the contract as written says the request is invalid.",
+        remedies: &["widen-dont-narrow", "optional-with-default"],
+    },
+    Rule {
+        id: "consumer-unreachable",
+        severity: Severity::Error,
+        level: Compatibility::Wire,
+        observable_by_demand: false,
+        summary: "A declared consumer source does not resolve or fails to parse.",
+        explanation: "A consumer declaration that cannot be read cannot be verified, and \
+reporting clean would be reporting a verification that did not happen. The CI workflow where a \
+prior step pulls pacts from a broker rests entirely on this: a failed pull leaves the declared \
+file absent, and that has to be loud rather than clean.",
+        remedies: &[],
+    },
+    Rule {
+        id: "consumer-partial",
+        severity: Severity::Warning,
+        level: Compatibility::Wire,
+        observable_by_demand: false,
+        summary: "An interaction contains a construct brake cannot model.",
+        explanation: "A plugin-backed content type, an `arrayContains` matcher, a message \
+interaction that constrains a broker topic rather than an HTTP surface. The interaction is \
+named with its pointer rather than skipped, so the verdict says 'not fully verified' instead of \
+'clean'. A tool that silently ignores what it cannot parse manufactures confidence.",
+        remedies: &[],
+    },
+    Rule {
+        id: "consumer-path-ambiguous",
+        severity: Severity::Warning,
+        level: Compatibility::Wire,
+        observable_by_demand: false,
+        summary: "A consumer's concrete path matches more than one contract template.",
+        explanation: "`/payments/status` matches both `/payments/{id}` and `/payments/status` \
+when neither is more literal than the other, so the expectation was not verified against \
+either. brake never guesses here: a guessed binding attributes a break to the wrong endpoint, \
+which is worse than declining to attribute it.",
+        remedies: &[],
+    },
+    Rule {
+        id: "consumer-provider-unmatched",
+        severity: Severity::Error,
+        level: Compatibility::Wire,
+        observable_by_demand: false,
+        summary: "A consumer declaration names a provider no `[[contract]]` declares.",
+        explanation: "A configuration error rather than a compatibility one: the declaration was \
+read and there is nothing to check it against, so the consumer it names is unguarded. Either \
+the provider name in the artifact does not match the contract name in brake.toml, or the \
+contract it constrains is not declared at all.",
+        remedies: &[],
+    },
+    Rule {
+        id: "consumer-undeclared",
+        severity: Severity::Info,
+        level: Compatibility::Wire,
+        observable_by_demand: false,
+        summary: "A file parses as a consumer declaration but brake.toml does not declare it.",
+        explanation: "brake only checks what it is told about, and a pact sitting in the tree \
+that no `[[consumer]]` declares is a consumer nobody is protecting. Identified by parsing, \
+never by filename: the first version of contract detection called \
+`.github/workflows/api-tests.yaml` an API, and a heuristic that called a fixture a pact would \
+be the same mistake with a new file extension.",
+        remedies: &[],
+    },
+    Rule {
+        id: "consumer-surface-unused",
+        severity: Severity::Info,
+        level: Compatibility::Wire,
+        observable_by_demand: false,
+        summary: "No declared consumer uses this endpoint.",
+        explanation: "The one rule here that reports a suspected *absence*, which the thesis \
+forbids at commit time — so it is excluded from `check` and emitted by `analyze` and `brake \
+consumers` only, and then only under an explicit `completeness = \"closed-world\"` declaration. \
+Without that declaration it would be a confident statement about consumers brake has never \
+heard of.",
         remedies: &[],
     },
 ];
@@ -671,6 +840,13 @@ mod tests {
             "stale-allow",
             "expired-allow",
             "generated-drift",
+            // Consumer-demand integrity and advisory rules: the same posture.
+            "consumer-unreachable",
+            "consumer-partial",
+            "consumer-path-ambiguous",
+            "consumer-provider-unmatched",
+            "consumer-undeclared",
+            "consumer-surface-unused",
             // Purely additive; nothing was broken.
             "endpoint-added",
             "param-added-optional",

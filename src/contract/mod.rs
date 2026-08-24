@@ -185,7 +185,7 @@ impl Span {
 }
 
 /// A resolved, normalised type.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum TypeRef {
     Scalar {
         ty: String,
@@ -224,7 +224,7 @@ pub enum TypeRef {
 ///
 /// Numeric bounds are compared numerically where both sides parse, and by
 /// equality otherwise, so an unparseable bound is never silently ignored.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Constraints {
     pub minimum: Option<String>,
     pub maximum: Option<String>,
@@ -240,7 +240,7 @@ impl Constraints {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Field {
     pub ty: TypeRef,
     pub required: bool,

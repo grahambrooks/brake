@@ -23,7 +23,12 @@ including what is deliberately *not* being built — check it before
 
 M0–M6 are done, and so are M7 (protobuf) and M8 (GraphQL). All three ingesters
 produce the same `Contract` and share one comparator; `check`, `analyze`,
-`diff` and `explain` work; text, JSON and SARIF all render.
+`diff`, `explain` and `consumers` work; text, JSON and SARIF all render.
+
+M12–M15, consumer demand
+([design/05-consumer-demand.md](design/05-consumer-demand.md)), are done too:
+pact, GraphQL-operation and manifest declarations, the join, the ten
+`consumer-*` rules, `affects` on every finding, and `who_consumes` over MCP.
 
 The rule catalogue lives in `src/rules/catalogue.rs` and is the single source
 of truth — [docs/rules.md](docs/rules.md) is generated from it by `make docs`
@@ -31,9 +36,11 @@ and a test fails if the two drift.
 
 What is worth knowing before changing anything:
 
-- **The five self-defence tests are in `tests/self_defence.rs`.** They defend
+- **The seven self-defence tests are in `tests/self_defence.rs`.** They defend
   the numbered guarantees in
-  [design/02-contract-gates.md](design/02-contract-gates.md) §6.1. If one of
+  [design/02-contract-gates.md](design/02-contract-gates.md) §6.1, the last two
+  over the demand axis
+  ([design/05-consumer-demand.md](design/05-consumer-demand.md) §8). If one of
   them starts failing, a claim the README makes has stopped being true.
 - **`tests/cli.rs` covers the binary's own surface.** A dropped argument in
   `main.rs` is invisible to library tests; that is how `brake check <path>`
@@ -51,6 +58,22 @@ What is worth knowing before changing anything:
 - **Nothing in `src/mcp/` may reach the `--drift` subprocess path.**
   `design/04-mcp-interface.md` §5.1 is the reasoning, and
   `tests/mcp.rs::no_tool_call_can_execute_a_declared_generator` is the guard.
+- **`src/demand/` never fetches anything, under any flag.** A URL in a pact —
+  `_links`, `pb:publish`, a `$ref` in an example body — is data. A consumer
+  `source` that is a URL is refused when `brake.toml` is parsed. `brake` reads
+  the directory a prior CI step wrote; it does not talk to a broker.
+- **Verification is `compare/types.rs` run sideways, not a second comparator.**
+  The consumer's expectation goes on the *base* side, the head contract on the
+  head side. If a demand-specific comparison appears in `src/demand/`, the
+  projection is wrong — fix it in `contract/` or `compare/`.
+- **A demand is silent about formats, bounds, nullability and enum membership.**
+  A pact records one value, not a schema, so `verify::reconcile` copies those
+  from the contract before comparing. Removing that turns every `format: uuid`
+  into a false `consumer-request-rejected`, which is how a hook gets
+  uninstalled.
+- **Attribution is evidence on a finding, never a second finding.** There is no
+  `consumer-break` rule, deliberately: one broken field must not produce four
+  findings a developer has to reassemble.
 
 ## Core constraints
 
@@ -87,6 +110,7 @@ src/config.rs      brake.toml
 src/contract/      Format ingesters → the normalised Contract model
 src/compare/       Contract × Contract → Change. Format-agnostic
 src/rules/         Change × Level → Finding. The rule catalogue
+src/demand/        Consumer declarations → Demand → the join → attribution
 src/baseline.rs    file / git / git-merge-base, via gix
 src/render/        text, json, sarif
 ```
@@ -110,6 +134,7 @@ make docs           # regenerate docs/rules.md from the catalogue
 make self-check     # run brake against its own fixture contract
 cargo run -- init            # scaffold brake.toml by parsing what is there
 cargo run -- check api/openapi.yaml
+cargo run -- consumers               # who uses what, non-gating
 cargo run --features mcp -- mcp .     # the MCP server, on stdio
 ```
 

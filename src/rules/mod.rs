@@ -11,7 +11,26 @@ use crate::compare::{Change, ChangeKind};
 use crate::config::{Compatibility, Suppression};
 use crate::contract::Span;
 
+/// A consumer this finding is evidence against, with the interaction that
+/// says so.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub struct ConsumerRef {
+    pub consumer: String,
+    /// The demand artifact, repository-relative.
+    pub source: String,
+    /// The interaction, not the contract.
+    pub span: Span,
+}
+
+/// One thing brake found.
+///
+/// `#[non_exhaustive]` from the release that added [`Finding::affects`]:
+/// adding a field to this struct breaks every downstream struct literal, and
+/// brake is the tool that gates exactly that. It ships as a deliberate,
+/// announced break so that it is the last one of its kind — taking the
+/// medicine this crate prescribes. See `design/05-consumer-demand.md` §11, M13.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[non_exhaustive]
 pub struct Finding {
     pub rule_id: &'static str,
     pub severity: Severity,
@@ -31,6 +50,18 @@ pub struct Finding {
     /// which for a parameter ends in its index.
     pub subject: Option<String>,
     pub span: Option<Span>,
+    /// Declared consumers this finding is evidence against, with the
+    /// interaction that says so. Empty when no consumer is declared, and —
+    /// importantly — also when none is affected. The two are not the same, and
+    /// the `note` a `triage` downgrade prints is what keeps them
+    /// distinguishable.
+    pub affects: Vec<ConsumerRef>,
+    /// The assumption a policy decision rests on, rendered under the finding.
+    ///
+    /// Set only by `triage`, which is the one policy that can lie: a
+    /// downgraded finding has to say what it was downgraded on the strength
+    /// of. See `design/05-consumer-demand.md` §7.2.
+    pub note: Option<String>,
 }
 
 impl Finding {
@@ -73,6 +104,8 @@ pub fn evaluate(changes: &[Change], contract: &str, level: Compatibility) -> Vec
             continue;
         }
         findings.push(Finding {
+            affects: Vec::new(),
+            note: None,
             rule_id: rule.id,
             severity: rule.severity,
             contract: contract.to_owned(),
@@ -167,6 +200,8 @@ fn message_for(change: &Change) -> String {
 #[must_use]
 pub fn contract_unreachable(contract: &str, details: &str, span: Option<Span>) -> Finding {
     Finding {
+        affects: Vec::new(),
+        note: None,
         rule_id: "contract-unreachable",
         severity: Severity::Error,
         contract: contract.to_owned(),
@@ -199,6 +234,8 @@ pub fn about_file(rule_id: &'static str, file: &str, message: String) -> Finding
 pub fn synthetic(rule_id: &'static str, contract: &str, message: String) -> Finding {
     let rule = catalogue::lookup(rule_id).expect("synthetic findings use catalogued rules");
     Finding {
+        affects: Vec::new(),
+        note: None,
         rule_id: rule.id,
         severity: rule.severity,
         contract: contract.to_owned(),
@@ -369,6 +406,8 @@ mod tests {
 
     fn finding(rule_id: &'static str, pointer: &str) -> Finding {
         Finding {
+            affects: Vec::new(),
+            note: None,
             rule_id,
             severity: Severity::Error,
             contract: "payments".to_owned(),
