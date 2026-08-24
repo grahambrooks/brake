@@ -1,0 +1,162 @@
+src/mcp/handlers.rs
+  s_756a615eb38edc::t_d5a648ab0a6a77 48
+  s_756a615eb38edc::t_60efa56ffcf8e6 84,141-145,149-245,347-352,410-411,414-420,503-505,595-603,847-869,899-904
+  s_756a615eb38edc::t_3a1f16dca2ab99 412-413
+  s_756a615eb38edc::t_6c88eef567e95c 905
+src/config.rs
+  s_756a615eb38edc::t_fde96222d5f463 7,11-20,91-150,237-238,240,250-253,257-261,332-387
+  s_756a615eb38edc::t_171728fcde0f76 239
+  s_756a615eb38edc::t_2586f37bc0dcec 388
+src/main.rs
+  s_756a615eb38edc::t_c6f2a4d3ad7f42 50-56,94-96,165-184,219,244,258,276,286-305,322
+pacts/web-checkout-payments.json
+  s_756a615eb38edc::t_9526cc235bb7a3 1-55
+design/03-implementation-plan.md
+  s_21b3ad73e80d69::t_f25072092be516 55-59,315-334,346,357-358
+tests/user_guide_cases.rs
+  s_756a615eb38edc::t_44f0c2aaf984c8 227
+src/demand/load.rs
+  s_756a615eb38edc::t_c3554c99da4db0 1-205,209-271,277-278,280-396,398-412,417-422,431-432
+  s_756a615eb38edc::t_3a1f16dca2ab99 206-208,272-276,279,397,413-416,423-430
+src/check.rs
+  s_756a615eb38edc::t_3a1f16dca2ab99 139-140,148-150,413
+  s_756a615eb38edc::t_0d17ae95e5e1f1 425
+  s_756a615eb38edc::t_ef54f137a9863a 401-408,412,414,423-424,426-427
+  s_756a615eb38edc::t_f0c50741d48f0f 616-617
+  s_756a615eb38edc::t_f97aa9910ecffb 723
+  s_756a615eb38edc::t_53e38e92fbb442 12,14-15,57-59,93-110,115-138,141-147,151-217
+  s_756a615eb38edc::t_d93602e5e1a81e 218
+src/render/json.rs
+  s_756a615eb38edc::t_34e547570adae3 43-56
+  s_756a615eb38edc::t_8c89d9d6d511f9 101-102
+src/demand/inventory.rs
+  s_756a615eb38edc::t_ebf6b3c9676ef2 1-211,213-276
+  s_756a615eb38edc::t_3a1f16dca2ab99 212
+src/report.rs
+  s_756a615eb38edc::t_8c89d9d6d511f9 91-92
+tests/mcp.rs
+  s_756a615eb38edc::t_1d171b6022b023 220-221
+  s_756a615eb38edc::t_18deac9a8a5676 244,500-506,590-720
+src/rules/strategies.rs
+  s_756a615eb38edc::t_15c6202d6aadfd 116-120
+  s_756a615eb38edc::t_438f7097ac7eaa 115
+tests/self_defence.rs
+  s_756a615eb38edc::t_830c82af3974b3 1,8-12,543-661
+  s_756a615eb38edc::t_17c86d8cc79340 94
+src/demand/policy.rs
+  s_756a615eb38edc::t_cffae2bc56fa05 1-158,160-179,181-236,241-242,249-264,270-286,292-335
+  s_756a615eb38edc::t_3a1f16dca2ab99 159,237-240,243-248,265-269,287-291
+  s_756a615eb38edc::t_a8a1a03a43f87c 180
+src/rules/mod.rs
+  s_756a615eb38edc::t_a2aaa07bb1a3a6 14-15,17-33,53-64,107-108,203-204
+  s_756a615eb38edc::t_77c226fc44f393 237-238,409-410
+design/README.md
+  s_21b3ad73e80d69::t_f25072092be516 20,31
+  s_756a615eb38edc::t_1d061f6063bdca 32-34
+  s_756a615eb38edc::t_7e70550112b4ce 35
+src/init.rs
+  s_756a615eb38edc::t_1fefc8fa9a1ffb 73,116-129,150-151
+src/render/text.rs
+  s_756a615eb38edc::t_04b34a36dcdbd1 132-135,143-147,151-159
+  s_756a615eb38edc::t_34e547570adae3 112-121,130-131,136-142,148-150,178-179,181-186
+  s_756a615eb38edc::t_90b5c34acf55fe 180
+  s_756a615eb38edc::t_8c89d9d6d511f9 288-289
+  s_756a615eb38edc::t_226c9c7baf8177 160
+src/demand/manifest.rs
+  s_756a615eb38edc::t_8ebbfd37dd9190 1-145,150-192,195-226,229-253
+  s_756a615eb38edc::t_3a1f16dca2ab99 146-149,193-194,227-228
+src/demand/mod.rs
+  s_756a615eb38edc::t_b03e802bdf4e53 21,130
+  s_756a615eb38edc::t_e9c2055b84fb7e 1-17,20,22,24-129,131-198,205-257,262-310,334-349
+  s_756a615eb38edc::t_a8a1a03a43f87c 201
+  s_756a615eb38edc::t_f82e274efb3e30 311-333
+  s_756a615eb38edc::t_3a1f16dca2ab99 258-261
+  s_756a615eb38edc::t_cfa0427ca88af8 18-19,23,199-200,202-204
+design/01-thesis.md
+  s_21b3ad73e80d69::t_b077259f4a010e 143-149,153-154,192-193
+design/05-consumer-demand.md
+  s_21b3ad73e80d69::t_20b0a607daa49d 1-2,9-599
+  s_756a615eb38edc::t_18d692654e69fe 3-8
+src/rules/catalogue.rs
+  s_756a615eb38edc::t_26f0a19a89dcd6 23-31,60,76,91,102,114,125,136,147,157,169,180,191,201,213,229,241,252,267,279,289,299,310,322,334,345,355,367,379,391,403,415,426,437,449,461,472
+  s_756a615eb38edc::t_9a97b5931682c9 843-849
+  s_756a615eb38edc::t_bc3b6ac7970cb0 478-601
+src/demand/verify.rs
+  s_756a615eb38edc::t_f9bfb6200d8c7c 23
+  s_756a615eb38edc::t_6b80e7b43d32b7 1-22,24-34,38-68,72-73,79-82,84-92,126-136,153-174,197-251,276-314,316-331,333,338-342,344-373,377-791,798-825,831-991,1010-1025,1029-1102
+  s_756a615eb38edc::t_abce2d6ea8a05f 138-152
+  s_756a615eb38edc::t_9309c3c0ad44d3 253-270
+  s_756a615eb38edc::t_284ffdfb6f0a4a 175-177,195-196,252,274-275
+  s_756a615eb38edc::t_59f9613e105f10 97-110,116,120-124
+  s_756a615eb38edc::t_8c89d9d6d511f9 35-37,71,137,332
+  s_756a615eb38edc::t_6bde07b7e5edc5 178-194
+  s_756a615eb38edc::t_22f786d19aec6f 69-70,74-78,83,93-96,111-115,117-119,125,315,334-337,343
+  s_756a615eb38edc::t_a349d076028f79 992-1009
+  s_756a615eb38edc::t_eb4823618de873 271-273
+  s_756a615eb38edc::t_3a1f16dca2ab99 374-376,826-830,1026-1028
+  s_756a615eb38edc::t_f82e274efb3e30 792-797
+src/demand/digest.rs
+  s_756a615eb38edc::t_e3842c4b5ec12b 1-105,107,109-114,118-197
+  s_756a615eb38edc::t_8c89d9d6d511f9 106,108
+  s_756a615eb38edc::t_3a1f16dca2ab99 115-117
+tests/consumer_demand.rs
+  s_756a615eb38edc::t_3a1f16dca2ab99 221-225,332-334,455-456,612-616,621,812-815,856-859,892-895,950-954
+  s_756a615eb38edc::t_830c82af3974b3 757-762
+  s_756a615eb38edc::t_4ba8a8150ec612 1231
+  s_756a615eb38edc::t_d7a78dd6f2b88c 1-220,226-331,335-454,457-611,617-620,622-640,648,650-734,741-756,763-811,816-855,860-891,896-949,955-1179
+  s_756a615eb38edc::t_ab716a64530a10 641-647,649,735-740
+  s_756a615eb38edc::t_4f769559704713 1191-1201,1213,1229-1230,1232
+  s_756a615eb38edc::t_e1d534280ef086 1180-1190,1202-1212,1214-1228,1233-1235,1241-1259,1264-1265
+  s_756a615eb38edc::t_eb4823618de873 1236-1240,1260-1263
+  s_756a615eb38edc::t_96f12b6b5fcbf0 1266-1299
+src/contract/mod.rs
+  s_756a615eb38edc::t_34c229cd7bfa33 188,227,243
+docs/rules.md
+  s_756a615eb38edc::t_2a4477226bd2ab 47-56,517-624
+src/demand/pact.rs
+  s_756a615eb38edc::t_3a1f16dca2ab99 611-616,678-681,760-767
+  s_756a615eb38edc::t_ac7f2b3036b518 1-610,617-677,682-759,768-779
+brake.toml
+  s_756a615eb38edc::t_9526cc235bb7a3 16-23
+README.md
+  s_756a615eb38edc::t_2cdc40a13503a8 72-77,133,137-165,296-301,304-306
+src/render/sarif.rs
+  s_756a615eb38edc::t_8c89d9d6d511f9 196-197
+  s_756a615eb38edc::t_34e547570adae3 72-98
+src/lib.rs
+  s_756a615eb38edc::t_e4332f4a7f8e90 38
+tests/diagnostics.rs
+  s_756a615eb38edc::t_44f0c2aaf984c8 98,132
+src/mcp/server.rs
+  s_756a615eb38edc::t_a917d254d2392a 89-91
+CLAUDE.md
+  s_756a615eb38edc::t_5a1be15148e611 26-31,39,41-43,61-76,113,137
+src/demand/operations.rs
+  s_756a615eb38edc::t_dc4cb217bafdf4 1-459
+tests/snapshots/diagnostics__json_response_field_removed.snap
+  s_756a615eb38edc::t_5707957d03918e 9,17,37,45
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.23",
+  "base_commit_sha": "c8ca51a043b9d214a739d3455e74cc0e47cad420",
+  "prompts": {},
+  "sessions": {
+    "s_21b3ad73e80d69": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "e5abe7e1-cf7e-4204-ad65-c817b69b2beb",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Graham Brooks <graham@grahambrooks.com>"
+    },
+    "s_756a615eb38edc": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "599d1fa4-883f-48e1-9bde-1a17a23ab717",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Graham Brooks <graham@grahambrooks.com>"
+    }
+  }
+}
