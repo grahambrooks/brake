@@ -175,7 +175,7 @@ dependencies = [
 
 [[package]]
 name = "brake"
-version = "2026.8.3"
+version = "2026.8.4"
 dependencies = [
  "annotate-snippets",
  "apollo-parser",

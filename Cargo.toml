@@ -12,7 +12,7 @@ name = "brake"
 # releases already cut this month. The month carries no leading zero because
 # 2026.08.0 is not valid SemVer and cargo requires SemVer. Bump with
 # `make release`, never by hand.
-version = "2026.8.3"
+version = "2026.8.4"
 edition = "2024"
 license = "MIT"
 description = "A brake on breaking API changes. Checks OpenAPI, protobuf and GraphQL contracts for backward compatibility, hermetically."
