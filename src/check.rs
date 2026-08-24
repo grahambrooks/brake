@@ -163,7 +163,9 @@ fn demand_pass(
         let Ok(bytes) = fs::read(repo_root.join(&contract.source)) else {
             continue;
         };
-        let Ok(head) = ingest(contract.format, &source, &bytes) else {
+        let resolver =
+            contract::FileSystemResolver::new(repo_root.join(parent_dir(&contract.source)));
+        let Ok(head) = ingest(contract.format, &source, &bytes, &resolver) else {
             // `contract-unreachable` is already on the report from the
             // baseline pass; reporting it twice would read as two problems.
             continue;
@@ -282,7 +284,20 @@ pub fn check_contract(
         }
     };
 
-    let base_contract = match ingest(contract.format, &resolved.label, &resolved.bytes) {
+    // Two resolvers, not one. A cross-file `$ref` on the baseline side has to
+    // be read from wherever the baseline came from — the commit, not the
+    // working tree. Sharing one working-tree resolver put today's shared
+    // schema on both sides, so a field deleted from a file two contracts
+    // `$ref` was missing from base and head alike and the run reported clean.
+    let document_dir = parent_dir(&contract.source);
+    let base_resolver = resolved.origin.resolver(repo_root, &document_dir);
+    let head_resolver = contract::FileSystemResolver::new(repo_root.join(&document_dir));
+    let base_contract = match ingest(
+        contract.format,
+        &resolved.label,
+        &resolved.bytes,
+        base_resolver.as_ref(),
+    ) {
         Ok(parsed) => parsed,
         Err(error) => {
             report
@@ -291,7 +306,7 @@ pub fn check_contract(
             return report;
         }
     };
-    let head_contract = match ingest(contract.format, &head_relative, &head_bytes) {
+    let head_contract = match ingest(contract.format, &head_relative, &head_bytes, &head_resolver) {
         Ok(parsed) => parsed,
         Err(error) => {
             report
@@ -349,16 +364,22 @@ pub fn check_contract(
     report
 }
 
-fn ingest(format: ContractFormat, source: &str, bytes: &[u8]) -> Result<Contract, String> {
+fn ingest(
+    format: ContractFormat,
+    source: &str,
+    bytes: &[u8],
+    resolver: &dyn contract::DocumentResolver,
+) -> Result<Contract, String> {
     match format {
-        ContractFormat::Openapi => {
-            contract::openapi::ingest(source, bytes).map_err(|error| error.to_string())
-        }
-        ContractFormat::Proto => {
-            contract::proto::ingest(source, bytes).map_err(|error| error.to_string())
-        }
-        ContractFormat::Graphql => {
-            contract::graphql::ingest(source, bytes).map_err(|error| error.to_string())
+        ContractFormat::Openapi => contract::openapi::ingest_with_resolver(source, bytes, resolver)
+            .map_err(|error| error.to_string()),
+        ContractFormat::Proto => contract::proto::ingest_with_resolver(source, bytes, resolver)
+            .map_err(|error| error.to_string()),
+        ContractFormat::Graphql => contract::graphql::ingest_with_resolver(source, bytes, resolver)
+            .map_err(|error| error.to_string()),
+        ContractFormat::Asyncapi => {
+            contract::asyncapi::ingest_with_resolver(source, bytes, resolver)
+                .map_err(|error| error.to_string())
         }
     }
 }
@@ -630,6 +651,16 @@ fn run_drift(
         subject: None,
         span: None,
     }))
+}
+
+/// The directory a contract document sits in, repository-relative and
+/// `/`-separated. Empty when the document is at the repository root.
+///
+/// A cross-file `$ref` is resolved relative to this, so it is also the
+/// boundary such a reference cannot reach past.
+#[must_use]
+pub fn parent_dir(source: &Path) -> String {
+    source.parent().map(display_path).unwrap_or_default()
 }
 
 /// A repository-relative path with `/` separators.
@@ -972,6 +1003,91 @@ paths:
                 .findings
                 .iter()
                 .any(|finding| finding.rule_id == "contract-new")
+        );
+    }
+
+    /// A shared schema is part of the contract, so the baseline's copy of it
+    /// has to come from the baseline's own revision.
+    ///
+    /// Both sides used to be ingested through one working-tree resolver, which
+    /// put today's `common/models.yaml` on the base side too. A field deleted
+    /// from it was then missing from base and head alike, the comparison found
+    /// nothing, and the run reported clean — the exact shape of false
+    /// confidence the thesis forbids.
+    #[test]
+    fn a_break_in_a_shared_document_is_not_hidden_by_the_working_tree() {
+        const ROOT: &str = r#"
+openapi: 3.1.0
+paths:
+  /payments/{id}:
+    get:
+      operationId: getPayment
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: "./common/models.yaml#/components/schemas/Payment"
+"#;
+        const SHARED_BEFORE: &str = r#"
+openapi: 3.1.0
+components:
+  schemas:
+    Payment:
+      type: object
+      required: [id, customer_id]
+      properties:
+        id: { type: string }
+        customer_id: { type: string }
+"#;
+        const SHARED_AFTER: &str = r#"
+openapi: 3.1.0
+components:
+  schemas:
+    Payment:
+      type: object
+      required: [id]
+      properties:
+        id: { type: string }
+"#;
+
+        let repo = repo_with(&[
+            ("api/openapi.yaml", ROOT),
+            ("api/common/models.yaml", SHARED_BEFORE),
+        ]);
+        run_git(repo.path(), &["init", "-b", "main"]);
+        run_git(repo.path(), &["config", "user.name", "Brake Test"]);
+        run_git(repo.path(), &["config", "user.email", "brake@example.com"]);
+        run_git(repo.path(), &["add", "."]);
+        run_git(repo.path(), &["commit", "-m", "the contract, in two files"]);
+
+        // Only the shared document changes; the contract's own file does not.
+        fs::write(repo.path().join("api/common/models.yaml"), SHARED_AFTER).expect("write");
+
+        let mut config = config_of(vec![contract_at("payments", "api/openapi.yaml", "unused")]);
+        config.contracts[0].baseline = Some(Baseline::Rev {
+            rev: "HEAD".to_owned(),
+        });
+
+        let report = check(repo.path(), &config, &Scope::All, &Options::default());
+
+        assert_eq!(
+            report.exit_code(Severity::Error),
+            1,
+            "a field removed from a shared document is still a removal: {report:?}"
+        );
+        assert!(
+            report
+                .findings
+                .iter()
+                .any(|finding| finding.rule_id == "response-field-removed"),
+            "expected response-field-removed, got {:?}",
+            report
+                .findings
+                .iter()
+                .map(|finding| finding.rule_id)
+                .collect::<Vec<_>>()
         );
     }
 

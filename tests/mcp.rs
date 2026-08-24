@@ -319,6 +319,13 @@ fn a_finding_arrives_with_the_ways_to_make_the_change_safely() {
         finding["choice_is_not_brakes"].is_string(),
         "an agent handed one confident recommendation will follow it"
     );
+    assert!(
+        finding["suggested_suppression"]
+            .as_str()
+            .expect("suggested suppression snippet")
+            .contains("[[contract.allow]]"),
+        "a finding should arrive with an actionable suppression snippet"
+    );
 }
 
 #[test]

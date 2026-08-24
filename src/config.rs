@@ -86,6 +86,7 @@ pub enum ContractFormat {
     Openapi,
     Proto,
     Graphql,
+    Asyncapi,
 }
 
 /// A consumer declaration format — `design/05-consumer-demand.md` §2.

@@ -31,6 +31,14 @@ pub enum GraphqlError {
 }
 
 pub fn ingest(source: &str, bytes: &[u8]) -> Result<Contract, GraphqlError> {
+    ingest_with_resolver(source, bytes, &crate::contract::SingleDocumentResolver)
+}
+
+pub fn ingest_with_resolver(
+    source: &str,
+    bytes: &[u8],
+    _resolver: &dyn crate::contract::DocumentResolver,
+) -> Result<Contract, GraphqlError> {
     let input = std::str::from_utf8(bytes).map_err(|error| GraphqlError::InvalidUtf8 {
         contract_source: source.to_owned(),
         error,
@@ -443,7 +451,10 @@ fn named_type(
             })
             .collect();
         visiting.remove(name);
-        return TypeRef::OneOf { variants };
+        return TypeRef::OneOf {
+            variants,
+            discriminator: None,
+        };
     }
 
     let defined = registry

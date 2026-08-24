@@ -45,7 +45,9 @@ pub mod rules;
 pub use crate::check::{Options, Scope};
 pub use crate::compare::Change;
 pub use crate::config::{Compatibility as Level, Config};
-pub use crate::contract::Contract;
+pub use crate::contract::{
+    Contract, DocumentResolver, FileSystemResolver, InMemoryResolver, SingleDocumentResolver,
+};
 pub use crate::report::Report;
 pub use crate::rules::Finding;
 
@@ -70,10 +72,33 @@ pub type Format = crate::config::ContractFormat;
 /// an unsupported version, or contains a `$ref` that would require the network
 /// or a read outside the source's directory.
 pub fn parse(format: Format, source: &str, bytes: &[u8]) -> Result<Contract, String> {
+    parse_with_resolver(format, source, bytes, &SingleDocumentResolver)
+}
+
+/// Ingest one contract artifact from bytes using a custom [`DocumentResolver`].
+///
+/// Supports hermetic multi-document resolution for sibling references across files.
+///
+/// # Errors
+///
+/// Returns the ingester's message when the document cannot be parsed, declares
+/// an unsupported version, or contains a `$ref` that would require the network
+/// or a read outside the source's directory.
+pub fn parse_with_resolver(
+    format: Format,
+    source: &str,
+    bytes: &[u8],
+    resolver: &dyn DocumentResolver,
+) -> Result<Contract, String> {
     match format {
-        Format::Openapi => contract::openapi::ingest(source, bytes).map_err(|e| e.to_string()),
-        Format::Proto => contract::proto::ingest(source, bytes).map_err(|e| e.to_string()),
-        Format::Graphql => contract::graphql::ingest(source, bytes).map_err(|e| e.to_string()),
+        Format::Openapi => contract::openapi::ingest_with_resolver(source, bytes, resolver)
+            .map_err(|e| e.to_string()),
+        Format::Proto => contract::proto::ingest_with_resolver(source, bytes, resolver)
+            .map_err(|e| e.to_string()),
+        Format::Graphql => contract::graphql::ingest_with_resolver(source, bytes, resolver)
+            .map_err(|e| e.to_string()),
+        Format::Asyncapi => contract::asyncapi::ingest_with_resolver(source, bytes, resolver)
+            .map_err(|e| e.to_string()),
     }
 }
 

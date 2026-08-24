@@ -18,6 +18,7 @@ list of things deliberately not being built.
 | [03-implementation-plan.md](03-implementation-plan.md) | Crate shape, module layout, public API, dependency decisions, milestones with completion conditions, test strategy, risks |
 | [04-mcp-interface.md](04-mcp-interface.md) | The MCP server: the same ruleset consulted at edit time by a coding agent, its tool surface, and the trust posture that constrains it |
 | [05-consumer-demand.md](05-consumer-demand.md) | Consumer declarations — pact files, GraphQL operations, native manifests — as a third input, so a finding can name who it breaks |
+| [06-architectural-evolution.md](06-architectural-evolution.md) | Architectural evolution: schema evolution depth, event contracts, hermetic multi-document bundling, subtyping lattice, CI integration |
 
 ## Status
 
@@ -32,6 +33,14 @@ M12–M15, consumer demand in [05-consumer-demand.md](05-consumer-demand.md), ar
 built: pact, GraphQL-operation and native-manifest declarations, the join, the
 consumer rules, `affects` on every finding, the three policies, `brake
 consumers` and `who_consumes` over MCP.
+
+[06-architectural-evolution.md](06-architectural-evolution.md) is a **roadmap**,
+and only partly built. Landed from it: the AsyncAPI ingester, hermetic
+multi-document `$ref` resolution, OpenAPI 3.1 type arrays, `prefixItems` tuples
+and `discriminator` mappings, protobuf `reserved` awareness, and the GitHub and
+GitLab renderers. Not built: the `proto-field-unreserved` and
+`proto-enum-value-unreserved` rules it proposes. `src/rules/catalogue.rs` is the
+only list of rules that exist — a proposal in a design document is not one.
 
 ## The shape of the argument
 

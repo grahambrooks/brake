@@ -5,9 +5,15 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
+pub mod asyncapi;
 pub mod graphql;
 pub mod openapi;
 pub mod proto;
+pub mod resolver;
+
+pub use resolver::{
+    DocumentResolver, FileSystemResolver, InMemoryResolver, SingleDocumentResolver,
+};
 
 /// The media type used by formats that do not have media types of their own.
 ///
@@ -184,6 +190,13 @@ impl Span {
     }
 }
 
+/// A polymorphic discriminator mapping.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub struct Discriminator {
+    pub property_name: String,
+    pub mapping: BTreeMap<String, String>,
+}
+
 /// A resolved, normalised type.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum TypeRef {
@@ -208,6 +221,11 @@ pub enum TypeRef {
         items: Box<TypeRef>,
         nullable: bool,
     },
+    Tuple {
+        prefix_items: Vec<TypeRef>,
+        additional_items: Option<Box<TypeRef>>,
+        nullable: bool,
+    },
     Object {
         fields: BTreeMap<String, Field>,
         additional: bool,
@@ -215,6 +233,7 @@ pub enum TypeRef {
     },
     OneOf {
         variants: Vec<TypeRef>,
+        discriminator: Option<Discriminator>,
     },
     Cycle(String),
     Unknown(UnmodelledKind),

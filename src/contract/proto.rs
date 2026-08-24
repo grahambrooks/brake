@@ -40,6 +40,14 @@ pub enum ProtoError {
 }
 
 pub fn ingest(source: &str, bytes: &[u8]) -> Result<Contract, ProtoError> {
+    ingest_with_resolver(source, bytes, &crate::contract::SingleDocumentResolver)
+}
+
+pub fn ingest_with_resolver(
+    source: &str,
+    bytes: &[u8],
+    _resolver: &dyn crate::contract::DocumentResolver,
+) -> Result<Contract, ProtoError> {
     let input = std::str::from_utf8(bytes).map_err(|error| ProtoError::InvalidUtf8 {
         contract_source: source.to_owned(),
         error,
@@ -239,6 +247,33 @@ impl Registry {
                 }
                 values.insert(name);
             }
+
+            for range in &enum_descriptor.reserved_range {
+                if let (Some(start), Some(end)) = (range.start, range.end) {
+                    let reused = numbers
+                        .values()
+                        .any(|number| *number >= start && *number <= end);
+                    if reused {
+                        return self.record(
+                            UnmodelledKind::Unsupported(format!(
+                                "an enum value reuses reserved number range {start}..{end}"
+                            )),
+                            &format!("/enum/{normalized}/reserved"),
+                        );
+                    }
+                }
+            }
+            for name in &enum_descriptor.reserved_name {
+                if values.contains(name) {
+                    return self.record(
+                        UnmodelledKind::Unsupported(format!(
+                            "an enum value reuses reserved name `{name}`"
+                        )),
+                        &format!("/enum/{normalized}/reserved"),
+                    );
+                }
+            }
+
             return TypeRef::Enum { values, numbers };
         }
 
@@ -289,22 +324,31 @@ impl Registry {
             );
         }
 
-        // A number inside a `reserved` range must never come back: reusing it
-        // makes new data decode as the old field in deployed clients.
+        // A number or name inside a `reserved` declaration must never come back:
+        // reusing it makes new data decode as the old field in deployed clients.
         for range in &message.reserved_range {
             if let (Some(start), Some(end)) = (range.start, range.end) {
-                let reused = fields
-                    .values()
-                    .filter_map(|field| field.number)
-                    .any(|number| number >= start && number < end);
-                if reused {
-                    self.record(
-                        UnmodelledKind::Unsupported(format!(
-                            "a field reuses reserved number range {start}..{end}"
-                        )),
-                        &format!("/message/{message_name}/reserved"),
-                    );
+                for (name, field) in fields.iter_mut() {
+                    if let Some(num) = field.number
+                        && num >= start
+                        && num < end
+                    {
+                        field.ty = self.record(
+                            UnmodelledKind::Unsupported(format!(
+                                "a field reuses reserved number range {start}..{end}"
+                            )),
+                            &format!("/message/{message_name}/field/{name}"),
+                        );
+                    }
                 }
+            }
+        }
+        for name in &message.reserved_name {
+            if let Some(field) = fields.get_mut(name) {
+                field.ty = self.record(
+                    UnmodelledKind::Unsupported(format!("a field reuses reserved name `{name}`")),
+                    &format!("/message/{message_name}/field/{name}"),
+                );
             }
         }
 
@@ -608,6 +652,51 @@ service S { rpc Get(Req) returns (Payment); }
         assert!(
             kinds.contains(&ChangeKind::ResponseTypeChanged),
             "int64 to uint32 changes what values can be represented: {kinds:?}"
+        );
+    }
+
+    #[test]
+    fn reusing_reserved_field_name_or_enum_range_is_unmodelled() {
+        let message_src = r#"
+syntax = "proto3";
+package payments;
+message Req { string id = 1; }
+message Payment {
+  reserved "old_name";
+  string old_name = 1;
+}
+service S { rpc Get(Req) returns (Payment); }
+"#;
+        let contract = ingest("api/payments.proto", message_src.as_bytes()).expect("ingest");
+        assert!(
+            contract
+                .unmodelled
+                .iter()
+                .any(|u| matches!(&u.kind, UnmodelledKind::Unsupported(msg) if msg.contains("reuses reserved name `old_name`"))),
+            "reusing reserved field name must be recorded: {:?}",
+            contract.unmodelled
+        );
+
+        let enum_src = r#"
+syntax = "proto3";
+package payments;
+enum Status {
+  reserved 1;
+  UNKNOWN = 0;
+  PAID = 1;
+}
+message Req { string id = 1; }
+message Payment { Status status = 1; }
+service S { rpc Get(Req) returns (Payment); }
+"#;
+        let enum_contract = ingest("api/payments.proto", enum_src.as_bytes()).expect("ingest");
+        assert!(
+            enum_contract
+                .unmodelled
+                .iter()
+                .any(|u| matches!(&u.kind, UnmodelledKind::Unsupported(msg) if msg.contains("reuses reserved number range"))),
+            "reusing reserved enum number range must be recorded: {:?}",
+            enum_contract.unmodelled
         );
     }
 

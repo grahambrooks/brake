@@ -88,6 +88,25 @@ impl Finding {
             .map(|strategy| strategies::bind(strategy, subject, endpoint.as_deref()))
             .collect()
     }
+
+    /// Format a suggested `[[contract.allow]]` TOML block for this finding.
+    #[must_use]
+    pub fn suggest_suppression(&self, reason: Option<&str>, expires: Option<&str>) -> String {
+        let mut out = String::from("[[contract.allow]]\n");
+        out.push_str(&format!("rule = {:?}\n", self.rule_id));
+        if let Some(endpoint) = self.endpoint() {
+            out.push_str(&format!("endpoint = {:?}\n", endpoint));
+        }
+        if let Some(field) = &self.subject {
+            out.push_str(&format!("field = {:?}\n", field));
+        }
+        let reason_val = reason.unwrap_or("<reason for suppression>");
+        out.push_str(&format!("reason = {:?}\n", reason_val));
+        if let Some(exp) = expires {
+            out.push_str(&format!("expires = {:?}\n", exp));
+        }
+        out
+    }
 }
 
 /// Turn changes into findings, dropping those the selected level does not ask
@@ -698,6 +717,19 @@ mod tests {
         assert_eq!(whole_repository.len(), 1);
         assert_eq!(whole_repository[0].rule_id, "stale-allow");
         assert!(whole_repository[0].message.contains("deprecation window"));
+    }
+
+    #[test]
+    fn formats_suggested_suppression_block() {
+        let mut f = finding("response-field-removed", "/responses/200/customer_id");
+        f.subject = Some("customer_id".to_owned());
+        let suggestion = f.suggest_suppression(Some("migration to v2"), Some("2026-12-31"));
+        assert!(suggestion.contains("[[contract.allow]]"));
+        assert!(suggestion.contains("rule = \"response-field-removed\""));
+        assert!(suggestion.contains("endpoint = \"GET /payments/{id}\""));
+        assert!(suggestion.contains("field = \"customer_id\""));
+        assert!(suggestion.contains("reason = \"migration to v2\""));
+        assert!(suggestion.contains("expires = \"2026-12-31\""));
     }
 
     #[test]

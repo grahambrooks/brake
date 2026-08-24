@@ -19,7 +19,7 @@ use std::path::{Path, PathBuf};
 
 use brake::check::{Options, Scope, check};
 use brake::config::{Baseline, Compatibility, Config, ContractConfig, ContractFormat, Defaults};
-use brake::render::{json, sarif, text};
+use brake::render::{github, gitlab, json, sarif, text};
 use tempfile::{TempDir, tempdir};
 
 const OPENAPI: &str = r#"
@@ -95,12 +95,14 @@ fn config(format: ContractFormat, source: &str, baseline: &str) -> Config {
     }
 }
 
-fn render_all(root: &Path, config: &Config) -> (String, String, String) {
+fn render_all(root: &Path, config: &Config) -> (String, String, String, String, String) {
     let report = check(root, config, &Scope::All, &Options::default());
     (
         text::render(&report),
         json::render(&report),
         sarif::render(&report),
+        github::render(&report),
+        gitlab::render(&report),
     )
 }
 
@@ -150,6 +152,14 @@ fn g4_two_runs_on_the_same_inputs_produce_the_same_bytes() {
         assert_eq!(
             first.2, second.2,
             "sarif output differs between runs: {source}"
+        );
+        assert_eq!(
+            first.3, second.3,
+            "github output differs between runs: {source}"
+        );
+        assert_eq!(
+            first.4, second.4,
+            "gitlab output differs between runs: {source}"
         );
         assert!(
             !first.1.contains("\"line\":null") || !first.1.is_empty(),

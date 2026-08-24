@@ -136,6 +136,59 @@ pub fn compare_response_type(base: &TypeRef, head: &TypeRef) -> Vec<TypeIssue> {
     compare_kinds(base, head, TypeDirection::Response)
 }
 
+/// Result of evaluating the subtyping relation `<:`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SubtypeResult {
+    /// Types satisfy the subtyping relation.
+    Valid,
+    /// Types are incompatible; contains the detected compatibility issues.
+    Incompatible(Vec<TypeIssue>),
+}
+
+impl SubtypeResult {
+    #[must_use]
+    pub fn is_valid(&self) -> bool {
+        matches!(self, Self::Valid)
+    }
+
+    #[must_use]
+    pub fn issues(&self) -> &[TypeIssue] {
+        match self {
+            Self::Valid => &[],
+            Self::Incompatible(issues) => issues,
+        }
+    }
+}
+
+/// Checks the structural subtyping relation `<:`.
+///
+/// In response position (covariance), head must be a subtype of base (`Head <: Base`).
+/// In request position (contravariance), head must be a supertype of base (`Base <: Head`).
+#[must_use]
+pub fn check_subtype(
+    sub: &TypeRef,
+    sup: &TypeRef,
+    direction: TypeDirection,
+    pointer: &str,
+) -> SubtypeResult {
+    let mut issues = Issues::default();
+    match direction {
+        TypeDirection::Response => {
+            // Covariance: sub = Head, sup = Base -> Head <: Base
+            compare_inner(sup, sub, direction, pointer, &mut issues);
+        }
+        TypeDirection::Request => {
+            // Contravariance: sub = Base, sup = Head -> Base <: Head
+            compare_inner(sub, sup, direction, pointer, &mut issues);
+        }
+    }
+    if issues.found.is_empty() {
+        SubtypeResult::Valid
+    } else {
+        SubtypeResult::Incompatible(issues.found.into_iter().map(|l| l.issue).collect())
+    }
+}
+
 /// Compare two types, reporting where each issue is.
 #[must_use]
 pub fn compare(base: &TypeRef, head: &TypeRef, direction: TypeDirection) -> Vec<Located> {
@@ -283,13 +336,139 @@ fn compare_inner(
             compare_object_fields(direction, pointer, base_fields, head_fields, issues);
         }
         (
+            TypeRef::Tuple {
+                prefix_items: base_items,
+                additional_items: base_additional,
+                nullable: base_nullable,
+            },
+            TypeRef::Tuple {
+                prefix_items: head_items,
+                additional_items: head_additional,
+                nullable: head_nullable,
+            },
+        ) => {
+            compare_nullable(direction, pointer, *base_nullable, *head_nullable, issues);
+            let min_len = base_items.len().min(head_items.len());
+            for i in 0..min_len {
+                compare_inner(
+                    &base_items[i],
+                    &head_items[i],
+                    direction,
+                    &format!("{pointer}/prefixItems/{i}"),
+                    issues,
+                );
+            }
+            match direction {
+                TypeDirection::Request => {
+                    if head_items.len() > base_items.len() && base_additional.is_none() {
+                        issues.push(TypeIssue::RequestTypeNarrowed {
+                            pointer: pointer.to_owned(),
+                            reason: format!(
+                                "tuple prefixItems expanded from {} to {} required elements",
+                                base_items.len(),
+                                head_items.len()
+                            ),
+                        });
+                    }
+                }
+                TypeDirection::Response => {
+                    if head_items.len() < base_items.len() && head_additional.is_none() {
+                        push_changed(
+                            direction,
+                            pointer,
+                            format!(
+                                "tuple prefixItems reduced from {} to {} elements",
+                                base_items.len(),
+                                head_items.len()
+                            ),
+                            issues,
+                        );
+                    }
+                }
+            }
+            match (base_additional, head_additional) {
+                (Some(base_add), Some(head_add)) => {
+                    compare_inner(
+                        base_add,
+                        head_add,
+                        direction,
+                        &format!("{pointer}/items"),
+                        issues,
+                    );
+                }
+                (Some(_), None) if direction == TypeDirection::Request => {
+                    issues.push(TypeIssue::RequestTypeNarrowed {
+                        pointer: pointer.to_owned(),
+                        reason: "additional tuple items disallowed".to_owned(),
+                    });
+                }
+                _ => {}
+            }
+        }
+        (
             TypeRef::OneOf {
                 variants: base_variants,
+                discriminator: base_disc,
             },
             TypeRef::OneOf {
                 variants: head_variants,
+                discriminator: head_disc,
             },
         ) => {
+            if let (Some(base_d), Some(head_d)) = (base_disc, head_disc) {
+                if base_d.property_name != head_d.property_name {
+                    push_changed(
+                        direction,
+                        pointer,
+                        format!(
+                            "discriminator property changed from `{}` to `{}`",
+                            base_d.property_name, head_d.property_name
+                        ),
+                        issues,
+                    );
+                }
+                for (key, target) in &base_d.mapping {
+                    match head_d.mapping.get(key) {
+                        Some(head_target) if head_target != target => {
+                            push_changed(
+                                direction,
+                                pointer,
+                                format!(
+                                    "discriminator mapping for `{key}` changed from `{target}` to `{head_target}`"
+                                ),
+                                issues,
+                            );
+                        }
+                        None => match direction {
+                            TypeDirection::Request => {
+                                issues.push(TypeIssue::RequestTypeNarrowed {
+                                    pointer: pointer.to_owned(),
+                                    reason: format!(
+                                        "discriminator mapping key `{key}` was removed"
+                                    ),
+                                });
+                            }
+                            TypeDirection::Response => {
+                                push_changed(
+                                    direction,
+                                    pointer,
+                                    format!("discriminator mapping key `{key}` was removed"),
+                                    issues,
+                                );
+                            }
+                        },
+                        _ => {}
+                    }
+                }
+            } else if base_disc.is_some() && head_disc.is_none() {
+                push_changed(
+                    direction,
+                    pointer,
+                    "discriminator was removed".to_owned(),
+                    issues,
+                );
+            }
+
             let base_set = variant_set(base_variants);
             let head_set = variant_set(head_variants);
             let removed = base_set.difference(&head_set).count();
@@ -839,12 +1018,24 @@ fn collect_partials(ty: &TypeRef, pointer: &str, issues: &mut Issues) {
         TypeRef::Array { items, .. } => {
             collect_partials(items, &format!("{pointer}/items"), issues);
         }
+        TypeRef::Tuple {
+            prefix_items,
+            additional_items,
+            ..
+        } => {
+            for (index, item) in prefix_items.iter().enumerate() {
+                collect_partials(item, &format!("{pointer}/prefixItems/{index}"), issues);
+            }
+            if let Some(additional) = additional_items {
+                collect_partials(additional, &format!("{pointer}/items"), issues);
+            }
+        }
         TypeRef::Object { fields, .. } => {
             for (name, field) in fields {
                 collect_partials(&field.ty, &field_pointer(pointer, name), issues);
             }
         }
-        TypeRef::OneOf { variants } => {
+        TypeRef::OneOf { variants, .. } => {
             for (index, variant) in variants.iter().enumerate() {
                 collect_partials(variant, &format!("{pointer}/{index}"), issues);
             }
@@ -878,6 +1069,7 @@ fn describe(ty: &TypeRef) -> String {
         TypeRef::Scalar { ty, .. } => format!("`{ty}`"),
         TypeRef::Enum { .. } => "an enum".to_owned(),
         TypeRef::Array { .. } => "an array".to_owned(),
+        TypeRef::Tuple { .. } => "a tuple".to_owned(),
         TypeRef::Object { .. } => "an object".to_owned(),
         TypeRef::OneOf { .. } => "a union".to_owned(),
         TypeRef::Cycle(name) => format!("a reference to `{name}`"),
@@ -889,12 +1081,27 @@ fn describe(ty: &TypeRef) -> String {
 /// between OpenAPI 3.0 and 3.1 registers as no change at all.
 fn normalized(ty: &TypeRef) -> TypeRef {
     match ty {
-        TypeRef::OneOf { variants } => fold_nullable_union(variants).unwrap_or(TypeRef::OneOf {
+        TypeRef::Tuple {
+            prefix_items,
+            additional_items,
+            nullable,
+        } => TypeRef::Tuple {
+            prefix_items: prefix_items.iter().map(normalized).collect(),
+            additional_items: additional_items
+                .as_ref()
+                .map(|item| Box::new(normalized(item))),
+            nullable: *nullable,
+        },
+        TypeRef::OneOf {
+            variants,
+            discriminator,
+        } => fold_nullable_union(variants).unwrap_or(TypeRef::OneOf {
             variants: {
                 let mut folded = variants.iter().map(normalized).collect::<Vec<_>>();
                 folded.sort_by_key(|variant| format!("{variant:?}"));
                 folded
             },
+            discriminator: discriminator.clone(),
         }),
         TypeRef::Array { items, nullable } => TypeRef::Array {
             items: Box::new(normalized(items)),
@@ -993,12 +1200,24 @@ pub fn unmodelled_kinds(ty: &TypeRef) -> Vec<UnmodelledKind> {
         match ty {
             TypeRef::Unknown(kind) => out.push(kind.clone()),
             TypeRef::Array { items, .. } => walk(items, out),
+            TypeRef::Tuple {
+                prefix_items,
+                additional_items,
+                ..
+            } => {
+                for item in prefix_items {
+                    walk(item, out);
+                }
+                if let Some(additional) = additional_items {
+                    walk(additional, out);
+                }
+            }
             TypeRef::Object { fields, .. } => {
                 for field in fields.values() {
                     walk(&field.ty, out);
                 }
             }
-            TypeRef::OneOf { variants } => {
+            TypeRef::OneOf { variants, .. } => {
                 for variant in variants {
                     walk(variant, out);
                 }
@@ -1014,6 +1233,7 @@ pub fn unmodelled_kinds(ty: &TypeRef) -> Vec<UnmodelledKind> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::contract::Discriminator;
     use std::collections::{BTreeMap, BTreeSet};
 
     fn scalar(ty: &str, nullable: bool) -> TypeRef {
@@ -1179,9 +1399,11 @@ mod tests {
     fn request_detects_oneof_variant_removal_and_ignores_addition() {
         let base = TypeRef::OneOf {
             variants: vec![scalar("string", false), scalar("integer", false)],
+            discriminator: None,
         };
         let head = TypeRef::OneOf {
             variants: vec![scalar("string", false)],
+            discriminator: None,
         };
 
         assert!(
@@ -1196,9 +1418,11 @@ mod tests {
     fn response_detects_oneof_variant_addition() {
         let base = TypeRef::OneOf {
             variants: vec![scalar("string", false)],
+            discriminator: None,
         };
         let head = TypeRef::OneOf {
             variants: vec![scalar("string", false), scalar("integer", false)],
+            discriminator: None,
         };
 
         assert!(
@@ -1223,6 +1447,7 @@ mod tests {
         let openapi_30 = scalar("string", true);
         let openapi_31 = TypeRef::OneOf {
             variants: vec![scalar("string", false), scalar("null", false)],
+            discriminator: None,
         };
 
         assert!(compare_request_type(&openapi_30, &openapi_31).is_empty());
@@ -1407,5 +1632,228 @@ mod tests {
                     TypeIssue::ResponseFieldRemoved { field, .. } if field == "note"
                 ))
         );
+    }
+
+    #[test]
+    fn check_subtype_evaluates_covariance_and_contravariance() {
+        let wide_str = scalar("string", true);
+        let narrow_str = scalar("string", false);
+
+        // Covariance in response: Head must be subtype of Base (Head <: Base)
+        // narrow_str <: wide_str is valid
+        let cov_valid = check_subtype(&narrow_str, &wide_str, TypeDirection::Response, "/response");
+        assert!(cov_valid.is_valid());
+        assert!(cov_valid.issues().is_empty());
+
+        // wide_str <: narrow_str in response produces issues
+        let cov_invalid =
+            check_subtype(&wide_str, &narrow_str, TypeDirection::Response, "/response");
+        assert!(!cov_invalid.is_valid());
+        assert!(!cov_invalid.issues().is_empty());
+
+        // Contravariance in request: Base must be subtype of Head (Base <: Head)
+        // Base = narrow_str, Head = wide_str -> narrow_str <: wide_str is valid
+        let contra_valid =
+            check_subtype(&narrow_str, &wide_str, TypeDirection::Request, "/request");
+        assert!(contra_valid.is_valid());
+        assert!(contra_valid.issues().is_empty());
+
+        // Base = wide_str, Head = narrow_str -> wide_str <: narrow_str in request produces narrowing issue
+        let contra_invalid =
+            check_subtype(&wide_str, &narrow_str, TypeDirection::Request, "/request");
+        assert!(!contra_invalid.is_valid());
+        assert!(!contra_invalid.issues().is_empty());
+    }
+
+    #[test]
+    fn check_subtype_structural_objects_and_enums() {
+        // Enums:
+        let enum_ab = TypeRef::Enum {
+            values: BTreeSet::from(["A".to_owned(), "B".to_owned()]),
+            numbers: BTreeMap::new(),
+        };
+        let enum_abc = TypeRef::Enum {
+            values: BTreeSet::from(["A".to_owned(), "B".to_owned(), "C".to_owned()]),
+            numbers: BTreeMap::new(),
+        };
+
+        // Response: extending enum values in response produces ResponseEnumExtended issue
+        let resp_extended = check_subtype(&enum_abc, &enum_ab, TypeDirection::Response, "/enum");
+        assert!(!resp_extended.is_valid());
+        assert!(
+            resp_extended
+                .issues()
+                .iter()
+                .any(|i| matches!(i, TypeIssue::ResponseEnumExtended { .. }))
+        );
+
+        // Request: enum_abc as Head accepts all variants of Base enum_ab (valid widening)
+        assert!(check_subtype(&enum_ab, &enum_abc, TypeDirection::Request, "/enum").is_valid());
+        // Request: enum_ab as Head rejects variant C from Base enum_abc (invalid narrowing)
+        let req_narrowed = check_subtype(&enum_abc, &enum_ab, TypeDirection::Request, "/enum");
+        assert!(!req_narrowed.is_valid());
+        assert!(
+            req_narrowed
+                .issues()
+                .iter()
+                .any(|i| matches!(i, TypeIssue::RequestTypeNarrowed { .. }))
+        );
+
+        // Objects:
+        let obj_base = object(vec![("id", scalar("string", false), true)], true);
+        let obj_optional_field = object(
+            vec![
+                ("id", scalar("string", false), true),
+                ("note", scalar("string", false), false),
+            ],
+            true,
+        );
+        let obj_required_field = object(
+            vec![
+                ("id", scalar("string", false), true),
+                ("token", scalar("string", false), true),
+            ],
+            true,
+        );
+
+        // Response: adding a field to response produces ResponseFieldAdded issue (additive change)
+        let resp_added = check_subtype(
+            &obj_optional_field,
+            &obj_base,
+            TypeDirection::Response,
+            "/obj",
+        );
+        assert!(
+            resp_added
+                .issues()
+                .iter()
+                .any(|i| matches!(i, TypeIssue::ResponseFieldAdded { .. }))
+        );
+
+        // Response: removing a field from response produces ResponseFieldRemoved issue
+        let resp_removed = check_subtype(
+            &obj_base,
+            &obj_optional_field,
+            TypeDirection::Response,
+            "/obj",
+        );
+        assert!(
+            resp_removed
+                .issues()
+                .iter()
+                .any(|i| matches!(i, TypeIssue::ResponseFieldRemoved { .. }))
+        );
+
+        // Request: adding optional field to request produces RequestFieldAddedOptional issue (additive notice)
+        let req_optional = check_subtype(
+            &obj_base,
+            &obj_optional_field,
+            TypeDirection::Request,
+            "/obj",
+        );
+        assert!(
+            req_optional
+                .issues()
+                .iter()
+                .any(|i| matches!(i, TypeIssue::RequestFieldAddedOptional { .. }))
+        );
+
+        // Request: adding required field to request is a break (incompatible)
+        let req_break = check_subtype(
+            &obj_base,
+            &obj_required_field,
+            TypeDirection::Request,
+            "/obj",
+        );
+        assert!(!req_break.is_valid());
+        assert!(
+            req_break
+                .issues()
+                .iter()
+                .any(|i| matches!(i, TypeIssue::RequestFieldAddedRequired { .. }))
+        );
+
+        // Arrays:
+        let arr_narrow = TypeRef::Array {
+            items: Box::new(scalar("string", false)),
+            nullable: false,
+        };
+        let arr_wide = TypeRef::Array {
+            items: Box::new(scalar("string", true)),
+            nullable: false,
+        };
+        // Response: narrow item <: wide item in response is valid
+        assert!(check_subtype(&arr_narrow, &arr_wide, TypeDirection::Response, "/arr").is_valid());
+        // Response: wide item <: narrow item in response produces issue
+        assert!(!check_subtype(&arr_wide, &arr_narrow, TypeDirection::Response, "/arr").is_valid());
+
+        // Request: narrow item <: wide item in request is valid (Head accepts null)
+        assert!(check_subtype(&arr_narrow, &arr_wide, TypeDirection::Request, "/arr").is_valid());
+        // Request: wide item <: narrow item in request produces issue (Head rejects null)
+        assert!(!check_subtype(&arr_wide, &arr_narrow, TypeDirection::Request, "/arr").is_valid());
+
+        // Tuples:
+        let tuple_2 = TypeRef::Tuple {
+            prefix_items: vec![scalar("string", false), scalar("integer", false)],
+            additional_items: None,
+            nullable: false,
+        };
+        let tuple_3 = TypeRef::Tuple {
+            prefix_items: vec![
+                scalar("string", false),
+                scalar("integer", false),
+                scalar("boolean", false),
+            ],
+            additional_items: None,
+            nullable: false,
+        };
+        // Response: tuple with fewer items reduces tuple length -> ResponseTypeChanged
+        let resp_tuple_reduced = compare_response_type(&tuple_3, &tuple_2);
+        assert!(
+            resp_tuple_reduced
+                .iter()
+                .any(|i| matches!(i, TypeIssue::ResponseTypeChanged { .. }))
+        );
+
+        // Request: tuple requiring more items narrows request input -> RequestTypeNarrowed
+        let req_tuple_expanded = compare_request_type(&tuple_2, &tuple_3);
+        assert!(
+            req_tuple_expanded
+                .iter()
+                .any(|i| matches!(i, TypeIssue::RequestTypeNarrowed { .. }))
+        );
+
+        // Discriminator mappings:
+        let disc_base = Discriminator {
+            property_name: "kind".to_owned(),
+            mapping: BTreeMap::from([
+                ("cat".to_owned(), "Cat".to_owned()),
+                ("dog".to_owned(), "Dog".to_owned()),
+            ]),
+        };
+        let disc_head_removed = Discriminator {
+            property_name: "kind".to_owned(),
+            mapping: BTreeMap::from([("cat".to_owned(), "Cat".to_owned())]),
+        };
+        let union_base = TypeRef::OneOf {
+            variants: vec![scalar("string", false)],
+            discriminator: Some(disc_base),
+        };
+        let union_head_removed = TypeRef::OneOf {
+            variants: vec![scalar("string", false)],
+            discriminator: Some(disc_head_removed),
+        };
+
+        // Removing a mapping in request narrows request
+        let req_disc_removed = compare_request_type(&union_base, &union_head_removed);
+        assert!(req_disc_removed.iter().any(
+            |i| matches!(i, TypeIssue::RequestTypeNarrowed { reason, .. } if reason.contains("dog"))
+        ));
+
+        // Removing a mapping in response changes response
+        let resp_disc_removed = compare_response_type(&union_base, &union_head_removed);
+        assert!(resp_disc_removed.iter().any(
+            |i| matches!(i, TypeIssue::ResponseTypeChanged { reason, .. } if reason.contains("dog"))
+        ));
     }
 }

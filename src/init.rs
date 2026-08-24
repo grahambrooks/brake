@@ -188,15 +188,19 @@ pub fn identify(path: &Path) -> Option<ContractFormat> {
     let name = path.to_string_lossy().to_ascii_lowercase();
     let source = display_path(path);
 
-    let format = if name.ends_with(".proto") {
-        ContractFormat::Proto
+    if name.ends_with(".proto") {
+        let format = ContractFormat::Proto;
+        crate::parse(format, &source, &bytes).ok().map(|_| format)
     } else if name.ends_with(".graphql") || name.ends_with(".graphqls") || name.ends_with(".gql") {
-        ContractFormat::Graphql
+        let format = ContractFormat::Graphql;
+        crate::parse(format, &source, &bytes).ok().map(|_| format)
+    } else if crate::parse(ContractFormat::Openapi, &source, &bytes).is_ok() {
+        Some(ContractFormat::Openapi)
+    } else if crate::parse(ContractFormat::Asyncapi, &source, &bytes).is_ok() {
+        Some(ContractFormat::Asyncapi)
     } else {
-        ContractFormat::Openapi
-    };
-
-    crate::parse(format, &source, &bytes).ok().map(|_| format)
+        None
+    }
 }
 
 /// `api/payments.baseline.yaml`, `api/openapi-baseline.json`.
@@ -213,6 +217,7 @@ fn is_baseline(relative: &str) -> bool {
 /// the `format` line directly beneath it.
 const UNINFORMATIVE: &[&str] = &[
     "openapi",
+    "asyncapi",
     "swagger",
     "schema",
     "spec",
@@ -268,11 +273,27 @@ fn clean(raw: &str) -> String {
     let lowered = raw.to_ascii_lowercase();
     let mut name = lowered.as_str();
     for noise in [
-        "-openapi", "_openapi", "-swagger", "_swagger", "-schema", "_schema", "-api", "_api",
+        "-openapi",
+        "_openapi",
+        "-asyncapi",
+        "_asyncapi",
+        "-swagger",
+        "_swagger",
+        "-schema",
+        "_schema",
+        "-api",
+        "_api",
     ] {
         name = name.strip_suffix(noise).unwrap_or(name);
     }
-    for noise in ["openapi-", "openapi_", "swagger-", "swagger_"] {
+    for noise in [
+        "openapi-",
+        "openapi_",
+        "asyncapi-",
+        "asyncapi_",
+        "swagger-",
+        "swagger_",
+    ] {
         name = name.strip_prefix(noise).unwrap_or(name);
     }
 
@@ -344,6 +365,7 @@ pub fn format_name(format: ContractFormat) -> &'static str {
         ContractFormat::Openapi => "openapi",
         ContractFormat::Proto => "proto",
         ContractFormat::Graphql => "graphql",
+        ContractFormat::Asyncapi => "asyncapi",
     }
 }
 

@@ -70,7 +70,7 @@ enum Command {
         /// Defaults to today.
         #[arg(long)]
         as_of: Option<String>,
-        /// Output format: auto, text, json, sarif.
+        /// Output format: auto, text, json, sarif, github, gitlab.
         #[arg(long, short, default_value = "auto")]
         format: String,
         /// Also run declared generator commands and check for drift.
@@ -97,7 +97,7 @@ enum Command {
         /// Override the compatibility level.
         #[arg(long)]
         compatibility: Option<String>,
-        /// Output format: auto, text, json, sarif.
+        /// Output format: auto, text, json, sarif, github, gitlab.
         #[arg(long, short, default_value = "auto")]
         format: String,
         /// Minimum severity that should fail analyze.
@@ -124,7 +124,7 @@ enum Command {
         /// Override every contract's baseline. See `brake check --help`.
         #[arg(long)]
         baseline: Option<String>,
-        /// Output format: auto, text, json, sarif.
+        /// Output format: auto, text, json, sarif, github, gitlab.
         #[arg(long, short, default_value = "auto")]
         format: String,
     },
@@ -294,9 +294,10 @@ fn run(cli: Cli) -> Result<ExitCode, String> {
                 brake::demand::inventory::build(&root, &config_value, &contract, &consumer);
             let rendered = match normalize_format(&format)? {
                 OutputFormat::Text => brake::demand::inventory::render_text(&inventory),
-                OutputFormat::Json | OutputFormat::Sarif => {
-                    brake::demand::inventory::render_json(&inventory)
-                }
+                OutputFormat::Json
+                | OutputFormat::Sarif
+                | OutputFormat::Github
+                | OutputFormat::Gitlab => brake::demand::inventory::render_json(&inventory),
             };
             print!("{rendered}");
             // Non-gating, by design: it answers a question, it does not judge.
@@ -575,6 +576,8 @@ fn emit(report: &Report, requested_format: &str) -> Result<(), String> {
         OutputFormat::Text => brake::render::text::render(report),
         OutputFormat::Json => brake::render::json::render(report),
         OutputFormat::Sarif => brake::render::sarif::render(report),
+        OutputFormat::Github => brake::render::github::render(report),
+        OutputFormat::Gitlab => brake::render::gitlab::render(report),
     };
     print!("{rendered}");
     Ok(())
@@ -678,6 +681,8 @@ fn normalize_format(requested_format: &str) -> Result<OutputFormat, String> {
         "text" => Ok(OutputFormat::Text),
         "json" => Ok(OutputFormat::Json),
         "sarif" => Ok(OutputFormat::Sarif),
+        "github" | "github-actions" => Ok(OutputFormat::Github),
+        "gitlab" | "codequality" | "code-quality" => Ok(OutputFormat::Gitlab),
         "auto" => {
             if std::io::stdout().is_terminal() {
                 Ok(OutputFormat::Text)
@@ -686,7 +691,7 @@ fn normalize_format(requested_format: &str) -> Result<OutputFormat, String> {
             }
         }
         other => Err(format!(
-            "unknown format `{other}`; expected one of: auto, text, json, sarif"
+            "unknown format `{other}`; expected one of: auto, text, json, sarif, github, gitlab"
         )),
     }
 }
@@ -695,6 +700,8 @@ enum OutputFormat {
     Text,
     Json,
     Sarif,
+    Github,
+    Gitlab,
 }
 
 #[cfg(test)]

@@ -10,8 +10,9 @@ use saphyr::{LoadableYamlNode, MarkedYamlOwned, ScalarOwned, YamlDataOwned};
 use thiserror::Error;
 
 use super::{
-    Constraints, Contract, Endpoint, EndpointKey, Field, Parameter, Payload, SecurityRequirement,
-    SecurityScheme, Span, TypeRef, Unmodelled, UnmodelledKind,
+    Constraints, Contract, Discriminator, DocumentResolver, Endpoint, EndpointKey, Field,
+    Parameter, Payload, SecurityRequirement, SecurityScheme, SingleDocumentResolver, Span, TypeRef,
+    Unmodelled, UnmodelledKind,
 };
 
 const HTTP_METHODS: &[(&str, &str)] = &[
@@ -73,6 +74,14 @@ pub enum OpenApiError {
 }
 
 pub fn ingest(source: &str, bytes: &[u8]) -> Result<Contract, OpenApiError> {
+    ingest_with_resolver(source, bytes, &SingleDocumentResolver)
+}
+
+pub fn ingest_with_resolver(
+    source: &str,
+    bytes: &[u8],
+    resolver: &dyn DocumentResolver,
+) -> Result<Contract, OpenApiError> {
     let input = std::str::from_utf8(bytes).map_err(|error| OpenApiError::InvalidUtf8 {
         contract_source: source.to_owned(),
         error,
@@ -105,6 +114,9 @@ pub fn ingest(source: &str, bytes: &[u8]) -> Result<Contract, OpenApiError> {
     let mut ctx = Ctx {
         source,
         root,
+        resolver,
+        external_docs: BTreeMap::new(),
+        current_doc_file: None,
         ref_stack: Vec::new(),
         unmodelled: Vec::new(),
         fatal: None,
@@ -203,17 +215,36 @@ fn check_version(source: &str, root: &MarkedYamlOwned) -> Result<(), OpenApiErro
 struct Ctx<'a> {
     source: &'a str,
     root: &'a MarkedYamlOwned,
+    resolver: &'a dyn DocumentResolver,
+    external_docs: BTreeMap<String, MarkedYamlOwned>,
+    current_doc_file: Option<String>,
     ref_stack: Vec<String>,
     unmodelled: Vec<Unmodelled>,
     fatal: Option<OpenApiError>,
 }
 
 impl<'a> Ctx<'a> {
+    fn current_root(&self) -> &MarkedYamlOwned {
+        if let Some(file) = &self.current_doc_file {
+            self.external_docs.get(file).unwrap_or(self.root)
+        } else {
+            self.root
+        }
+    }
+
+    fn current_source(&self) -> &str {
+        if let Some(file) = &self.current_doc_file {
+            file.as_str()
+        } else {
+            self.source
+        }
+    }
+
     fn record(&mut self, kind: UnmodelledKind, pointer: &str, node: &MarkedYamlOwned) -> TypeRef {
         self.unmodelled.push(Unmodelled {
             kind: kind.clone(),
             pointer: pointer.to_owned(),
-            span: span(self.source, node, pointer.to_owned()),
+            span: span(self.current_source(), node, pointer.to_owned()),
         });
         TypeRef::Unknown(kind)
     }
@@ -463,7 +494,7 @@ impl<'a> Ctx<'a> {
         responses
     }
 
-    fn parse_schema(&mut self, schema_node: &'a MarkedYamlOwned, pointer: &str) -> TypeRef {
+    fn parse_schema(&mut self, schema_node: &MarkedYamlOwned, pointer: &str) -> TypeRef {
         if schema_node.data.as_mapping().is_none() {
             // 3.1 allows `true`/`false` as a schema. `true` accepts anything;
             // treat it as an open object rather than guessing a shape.
@@ -508,7 +539,11 @@ impl<'a> Ctx<'a> {
                         self.parse_schema(variant, &format!("{pointer}/{keyword}/{index}"))
                     })
                     .collect();
-                return TypeRef::OneOf { variants: parsed };
+                let discriminator = self.parse_discriminator(schema_node);
+                return TypeRef::OneOf {
+                    variants: parsed,
+                    discriminator,
+                };
             }
         }
 
@@ -568,6 +603,7 @@ impl<'a> Ctx<'a> {
                         .iter()
                         .map(|name| self.type_for_name(name, schema_node, pointer, nullable))
                         .collect(),
+                    discriminator: None,
                 };
             }
             let Some(name) = parsed.names.first() else {
@@ -587,7 +623,9 @@ impl<'a> Ctx<'a> {
         {
             return self.parse_object_type(schema_node, pointer, nullable_30);
         }
-        if get_map_value(schema_node, "items").is_some() {
+        if get_map_value(schema_node, "items").is_some()
+            || get_map_value(schema_node, "prefixItems").is_some()
+        {
             return self.parse_array_type(schema_node, pointer, nullable_30);
         }
         if schema_node
@@ -609,7 +647,7 @@ impl<'a> Ctx<'a> {
     fn type_for_name(
         &mut self,
         name: &str,
-        schema_node: &'a MarkedYamlOwned,
+        schema_node: &MarkedYamlOwned,
         pointer: &str,
         nullable: bool,
     ) -> TypeRef {
@@ -627,12 +665,52 @@ impl<'a> Ctx<'a> {
         }
     }
 
+    fn parse_discriminator(&self, schema_node: &MarkedYamlOwned) -> Option<Discriminator> {
+        let disc_node = get_map_value(schema_node, "discriminator")?;
+        let prop_name = get_map_value(disc_node, "propertyName")
+            .and_then(string_node)?
+            .to_owned();
+        let mut mapping = BTreeMap::new();
+        if let Some(map_node) =
+            get_map_value(disc_node, "mapping").and_then(|n| n.data.as_mapping())
+        {
+            for (k, v) in map_node {
+                if let (Some(ks), Some(vs)) = (string_node(k), string_node(v)) {
+                    mapping.insert(ks.to_owned(), vs.to_owned());
+                }
+            }
+        }
+        Some(Discriminator {
+            property_name: prop_name,
+            mapping,
+        })
+    }
+
     fn parse_array_type(
         &mut self,
-        schema_node: &'a MarkedYamlOwned,
+        schema_node: &MarkedYamlOwned,
         pointer: &str,
         nullable: bool,
     ) -> TypeRef {
+        if let Some(prefix_items_node) =
+            get_map_value(schema_node, "prefixItems").and_then(|node| node.data.as_vec())
+        {
+            let prefix_items = prefix_items_node
+                .iter()
+                .enumerate()
+                .map(|(index, item)| {
+                    self.parse_schema(item, &format!("{pointer}/prefixItems/{index}"))
+                })
+                .collect();
+            let additional_items = get_map_value(schema_node, "items")
+                .map(|items| Box::new(self.parse_schema(items, &format!("{pointer}/items"))));
+            return TypeRef::Tuple {
+                prefix_items,
+                additional_items,
+                nullable,
+            };
+        }
+
         let items = match get_map_value(schema_node, "items") {
             Some(items) => self.parse_schema(items, &format!("{pointer}/items")),
             None => self.record(
@@ -649,7 +727,7 @@ impl<'a> Ctx<'a> {
 
     fn parse_object_type(
         &mut self,
-        schema_node: &'a MarkedYamlOwned,
+        schema_node: &MarkedYamlOwned,
         pointer: &str,
         nullable: bool,
     ) -> TypeRef {
@@ -675,7 +753,7 @@ impl<'a> Ctx<'a> {
                 let field_pointer = format!("{pointer}/properties/{}", escape_json_pointer(name));
                 // The *key* node, not the schema: `customer_id:` is the line a
                 // reader is looking for, not the `type: string` beneath it.
-                let field_span = span(self.source, name_node, field_pointer.clone());
+                let field_span = span(self.current_source(), name_node, field_pointer.clone());
                 fields.insert(
                     name.to_owned(),
                     Field {
@@ -715,17 +793,35 @@ impl<'a> Ctx<'a> {
         &mut self,
         reference: &str,
         pointer: &str,
-        node: &'a MarkedYamlOwned,
+        node: &MarkedYamlOwned,
     ) -> TypeRef {
         match self.classify_ref(reference) {
             RefKind::Fatal(error) => {
                 self.fatal.get_or_insert(error);
                 TypeRef::Unknown(UnmodelledKind::InvalidShape)
             }
-            RefKind::External(reference) => {
-                self.record(UnmodelledKind::ExternalRef(reference), pointer, node)
+            RefKind::External(ref_str) => {
+                let (file_part, pointer_part) = ref_str.split_once('#').unwrap_or((&ref_str, ""));
+                // Relative to the *document*, never to `source`: for a baseline read
+                // out of git, `source` is a descriptor like `rev:HEAD`, and
+                // deriving a directory from that resolved every sibling `$ref`
+                // against the wrong place. The top-level document sits at the
+                // resolver's root, so it contributes no directory of its own.
+                let resolved_path = resolve_relative_file_path(
+                    self.current_doc_file.as_deref().unwrap_or(""),
+                    file_part,
+                );
+
+                if let Some(parsed) =
+                    self.resolve_external_schema(&resolved_path, pointer_part, pointer)
+                {
+                    parsed
+                } else {
+                    self.record(UnmodelledKind::ExternalRef(ref_str), pointer, node)
+                }
             }
             RefKind::Local => {
+                let current_root = self.current_root();
                 let name = reference
                     .rsplit('/')
                     .next()
@@ -733,25 +829,82 @@ impl<'a> Ctx<'a> {
                     .replace("~1", "/")
                     .replace("~0", "~");
 
-                if self.ref_stack.iter().any(|held| held == reference) {
+                let ref_key = if let Some(file) = &self.current_doc_file {
+                    format!("{file}{reference}")
+                } else {
+                    reference.to_owned()
+                };
+
+                if self.ref_stack.iter().any(|held| held == &ref_key) {
                     return TypeRef::Cycle(name);
                 }
-                let Some(target) = find_pointer(self.root, reference) else {
+                let Some(target) = find_pointer(current_root, reference) else {
                     return self.record(
                         UnmodelledKind::UnresolvableRef(reference.to_owned()),
                         pointer,
                         node,
                     );
                 };
-                self.ref_stack.push(reference.to_owned());
-                let parsed = self.parse_schema(target, pointer);
+                let target_clone = target.clone();
+                self.ref_stack.push(ref_key);
+                let parsed = self.parse_schema(&target_clone, pointer);
                 self.ref_stack.pop();
                 parsed
             }
         }
     }
 
-    fn flatten_all_of(&mut self, parts: &'a [MarkedYamlOwned], pointer: &str) -> TypeRef {
+    fn resolve_external_schema(
+        &mut self,
+        file_path: &str,
+        pointer_part: &str,
+        pointer: &str,
+    ) -> Option<TypeRef> {
+        let full_ref_id = format!("{file_path}#{pointer_part}");
+        let name = pointer_part
+            .rsplit('/')
+            .next()
+            .unwrap_or(pointer_part)
+            .replace("~1", "/")
+            .replace("~0", "~");
+        let cycle_name = if name.is_empty() {
+            file_path.rsplit('/').next().unwrap_or(file_path).to_owned()
+        } else {
+            name
+        };
+
+        if self.ref_stack.iter().any(|held| held == &full_ref_id) {
+            return Some(TypeRef::Cycle(cycle_name));
+        }
+
+        if !self.external_docs.contains_key(file_path) {
+            let bytes = self.resolver.resolve(file_path)?;
+            let input = std::str::from_utf8(&bytes).ok()?;
+            let docs = MarkedYamlOwned::load_from_str(input).ok()?;
+            let root = docs.into_iter().next()?;
+            self.external_docs.insert(file_path.to_owned(), root);
+        }
+
+        let doc = self.external_docs.get(file_path)?;
+        let target = if pointer_part.is_empty() || pointer_part == "/" {
+            doc
+        } else {
+            find_pointer(doc, pointer_part)?
+        };
+
+        let target_clone = target.clone();
+        let prev_doc_file = self.current_doc_file.take();
+        self.current_doc_file = Some(file_path.to_owned());
+        self.ref_stack.push(full_ref_id);
+
+        let parsed = self.parse_schema(&target_clone, pointer);
+
+        self.ref_stack.pop();
+        self.current_doc_file = prev_doc_file;
+        Some(parsed)
+    }
+
+    fn flatten_all_of(&mut self, parts: &[MarkedYamlOwned], pointer: &str) -> TypeRef {
         let mut fields = BTreeMap::new();
         let mut additional = true;
         let mut nullable = false;
@@ -828,6 +981,31 @@ fn escapes_source_tree(file_part: &str) -> bool {
         }
     }
     false
+}
+
+fn resolve_relative_file_path(source_file: &str, ref_file: &str) -> String {
+    let source_dir = match source_file.rfind('/') {
+        Some(pos) => &source_file[..pos],
+        None => "",
+    };
+    let mut segments = Vec::new();
+    if !source_dir.is_empty() {
+        for seg in source_dir.split('/') {
+            if !seg.is_empty() && seg != "." {
+                segments.push(seg);
+            }
+        }
+    }
+    for seg in ref_file.split('/') {
+        match seg {
+            "" | "." => {}
+            ".." => {
+                segments.pop();
+            }
+            s => segments.push(s),
+        }
+    }
+    segments.join("/")
 }
 
 struct ParsedType {
@@ -968,6 +1146,7 @@ fn escape_json_pointer(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::contract::InMemoryResolver;
 
     fn response_type<'a>(
         contract: &'a Contract,
@@ -1566,6 +1745,9 @@ paths:
         assert_eq!(contract.endpoints.len(), 1);
     }
 
+    /// `additionalProperties` is a boolean *or* a schema, and reading only the
+    /// boolean made `additionalProperties: {type: string}` look wide open.
+    /// The guard was dropped when the multi-document tests landed in its place.
     #[test]
     fn additional_properties_schema_is_not_read_as_wide_open() {
         let spec = r#"
@@ -1584,9 +1766,170 @@ paths:
                   type: string
 "#;
         let contract = ingest("api/openapi.yaml", spec.as_bytes()).expect("ingest");
+        let ty = response_type(&contract, "GET", "/p", "200");
+        assert!(
+            matches!(ty, TypeRef::Object { additional, .. } if *additional),
+            "a schema-valued additionalProperties still admits extra members: {ty:?}"
+        );
+    }
+
+    #[test]
+    fn resolves_local_sibling_file_references_via_resolver() {
+        let root_spec = r#"
+openapi: 3.1.0
+paths:
+  /users:
+    get:
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: "./common/models.yaml#/components/schemas/User"
+"#;
+        let models_spec = r#"
+openapi: 3.1.0
+components:
+  schemas:
+    User:
+      type: object
+      required: [id, name]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+"#;
+        let resolver = InMemoryResolver::new()
+            .with_document("common/models.yaml", models_spec.as_bytes().to_vec());
+
+        let contract = ingest_with_resolver("api/openapi.yaml", root_spec.as_bytes(), &resolver)
+            .expect("ingest with resolver");
+
+        assert!(contract.unmodelled.is_empty());
+        let ty = response_type(&contract, "GET", "/users", "200");
+        let TypeRef::Object { fields, .. } = ty else {
+            panic!("expected object type, got {ty:?}");
+        };
+        assert!(fields.contains_key("id"));
+        assert!(fields.contains_key("name"));
+        assert!(fields["id"].required);
+    }
+
+    #[test]
+    fn resolves_nested_external_file_references_and_cycles() {
+        let root_spec = r#"
+openapi: 3.1.0
+paths:
+  /orders:
+    get:
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: "./models/order.yaml#/Order"
+"#;
+        let order_spec = r#"
+Order:
+  type: object
+  required: [id, customer]
+  properties:
+    id:
+      type: string
+    customer:
+      $ref: "./customer.yaml#/Customer"
+"#;
+        let customer_spec = r#"
+Customer:
+  type: object
+  required: [name]
+  properties:
+    name:
+      type: string
+"#;
+        let resolver = InMemoryResolver::new()
+            .with_document("models/order.yaml", order_spec.as_bytes().to_vec())
+            .with_document("models/customer.yaml", customer_spec.as_bytes().to_vec());
+
+        let contract = ingest_with_resolver("api/openapi.yaml", root_spec.as_bytes(), &resolver)
+            .expect("ingest nested with resolver");
+
+        assert!(contract.unmodelled.is_empty());
+        let ty = response_type(&contract, "GET", "/orders", "200");
+        let TypeRef::Object { fields, .. } = ty else {
+            panic!("expected object type, got {ty:?}");
+        };
+        assert!(fields.contains_key("id"));
+        assert!(fields.contains_key("customer"));
+
+        let TypeRef::Object {
+            fields: customer_fields,
+            ..
+        } = &fields["customer"].ty
+        else {
+            panic!("expected nested customer object");
+        };
+        assert!(customer_fields.contains_key("name"));
+    }
+
+    #[test]
+    fn handles_circular_external_references_without_infinite_loop() {
+        let root_spec = r#"
+openapi: 3.1.0
+paths:
+  /node:
+    get:
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: "./node.yaml#/Node"
+"#;
+        let node_spec = r#"
+Node:
+  type: object
+  properties:
+    next:
+      $ref: "./node.yaml#/Node"
+"#;
+        let resolver =
+            InMemoryResolver::new().with_document("node.yaml", node_spec.as_bytes().to_vec());
+
+        let contract = ingest_with_resolver("api/openapi.yaml", root_spec.as_bytes(), &resolver)
+            .expect("ingest circular with resolver");
+
+        let ty = response_type(&contract, "GET", "/node", "200");
+        let TypeRef::Object { fields, .. } = ty else {
+            panic!("expected object");
+        };
+        assert!(matches!(fields["next"].ty, TypeRef::Cycle(_)));
+    }
+
+    #[test]
+    fn single_document_resolver_records_external_ref_as_unmodelled() {
+        let root_spec = r#"
+openapi: 3.1.0
+paths:
+  /users:
+    get:
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: "./common/models.yaml#/components/schemas/User"
+"#;
+        let contract = ingest("api/openapi.yaml", root_spec.as_bytes()).expect("ingest");
+        assert_eq!(contract.unmodelled.len(), 1);
         assert!(matches!(
-            response_type(&contract, "GET", "/p", "200"),
-            TypeRef::Object { .. }
+            &contract.unmodelled[0].kind,
+            UnmodelledKind::ExternalRef(r) if r == "./common/models.yaml#/components/schemas/User"
         ));
     }
 }

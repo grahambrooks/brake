@@ -248,7 +248,15 @@ fn format_auto_is_json_when_piped() {
 #[test]
 fn every_format_renders_and_agrees_on_the_verdict() {
     let repo = two_contracts();
-    for format in ["text", "json", "sarif"] {
+    for format in [
+        "text",
+        "json",
+        "sarif",
+        "github",
+        "gitlab",
+        "github-actions",
+        "codequality",
+    ] {
         let output = brake(repo.path(), &["check", "--format", format]);
         assert_eq!(code(&output), 1, "format {format} disagreed on the verdict");
         assert!(
@@ -258,6 +266,22 @@ fn every_format_renders_and_agrees_on_the_verdict() {
     }
     let bad = brake(repo.path(), &["check", "--format", "yaml"]);
     assert_eq!(code(&bad), 2);
+}
+
+#[test]
+fn github_format_renders_workflow_commands() {
+    let repo = two_contracts();
+    let output = brake(repo.path(), &["check", "--format", "github"]);
+    assert_eq!(code(&output), 1);
+    let out = stdout(&output);
+    assert!(
+        out.contains("::error file="),
+        "github format should emit workflow commands: {out}"
+    );
+    assert!(
+        out.contains("title=endpoint-removed"),
+        "github format should carry rule title: {out}"
+    );
 }
 
 #[test]
@@ -600,7 +624,7 @@ fn a_suppression_without_a_reason_is_rejected() {
 #[test]
 fn output_is_byte_identical_across_repeated_invocations() {
     let repo = two_contracts();
-    for format in ["text", "json", "sarif"] {
+    for format in ["text", "json", "sarif", "github", "gitlab"] {
         let first = stdout(&brake(repo.path(), &["check", "--format", format]));
         let second = stdout(&brake(repo.path(), &["check", "--format", format]));
         assert_eq!(first, second, "format {format} is not byte-stable");
@@ -992,5 +1016,261 @@ fn a_finding_with_no_field_span_still_locates_the_payload() {
     assert!(
         finding["line"].as_u64().is_some_and(|line| line > 0),
         "a fallback span must still be a real location: {finding}"
+    );
+}
+
+#[test]
+fn github_actions_and_gitlab_formats_render_properly() {
+    let repo = two_contracts();
+    let gh = stdout(&brake(repo.path(), &["check", "--format", "github"]));
+    assert!(gh.contains("::error"));
+    assert!(gh.contains("title=endpoint-removed"));
+
+    let gl = stdout(&brake(repo.path(), &["check", "--format", "gitlab"]));
+    let parsed: serde_json::Value = serde_json::from_str(&gl).expect("valid gitlab json array");
+    assert!(parsed.is_array());
+    assert!(!parsed.as_array().unwrap().is_empty());
+    assert_eq!(parsed[0]["check_name"], "endpoint-removed");
+}
+
+#[test]
+fn analyze_and_diff_render_with_github_and_gitlab_formats() {
+    let repo = two_contracts();
+    let analyze_gl = stdout(&brake(repo.path(), &["analyze", ".", "--format", "gitlab"]));
+    let parsed_analyze: serde_json::Value =
+        serde_json::from_str(&analyze_gl).expect("valid gitlab json from analyze");
+    assert!(parsed_analyze.is_array());
+
+    let analyze_gh = stdout(&brake(repo.path(), &["analyze", ".", "--format", "github"]));
+    assert!(analyze_gh.contains("::error"));
+
+    let diff_gh = stdout(&brake(repo.path(), &["diff", "--format", "github"]));
+    assert!(diff_gh.contains("endpoint-removed"));
+
+    let diff_gl = stdout(&brake(repo.path(), &["diff", "--format", "gitlab"]));
+    let parsed_diff: serde_json::Value =
+        serde_json::from_str(&diff_gl).expect("valid gitlab json from diff");
+    assert!(parsed_diff.is_array());
+}
+
+#[test]
+fn protobuf_reserved_fields_prevent_silent_reuse_in_cli() {
+    let proto_base = r#"
+syntax = "proto3";
+package pay;
+message Payment {
+  string id = 1;
+}
+service S { rpc Get(Payment) returns (Payment); }
+"#;
+    let proto_with_collision = r#"
+syntax = "proto3";
+package pay;
+message Payment {
+  reserved 1, 4 to 8;
+  reserved "bad_field";
+  string id = 1;
+}
+service S { rpc Get(Payment) returns (Payment); }
+"#;
+    let repo = repo(&[
+        (
+            "brake.toml",
+            "[[contract]]\nname=\"p\"\nformat=\"proto\"\nsource=\"api/p.proto\"\n\
+             baseline={file=\"api/p.baseline.proto\"}\n",
+        ),
+        ("api/p.baseline.proto", proto_base),
+        ("api/p.proto", proto_with_collision),
+    ]);
+
+    let output = brake(
+        repo.path(),
+        &["analyze", ".", "--fail-on", "warning", "--format", "json"],
+    );
+    assert_eq!(
+        code(&output),
+        1,
+        "contract with reserved collision must fail when gating on warnings"
+    );
+    let parsed: serde_json::Value = serde_json::from_str(&stdout(&output)).expect("valid json");
+    assert_eq!(parsed["findings"][0]["rule"], "contract-partial");
+    assert!(
+        parsed["findings"][0]["message"]
+            .as_str()
+            .unwrap()
+            .contains("reuses reserved number range")
+    );
+}
+
+#[test]
+fn multi_document_openapi_references_resolve_in_cli() {
+    let base_root = r#"
+openapi: 3.1.0
+paths:
+  /users:
+    get:
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: "./models/user_base.yaml#/User"
+"#;
+    let head_root = r#"
+openapi: 3.1.0
+paths:
+  /users:
+    get:
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: "./models/user.yaml#/User"
+"#;
+    let base_user = r#"
+User:
+  type: object
+  required: [id, email]
+  properties:
+    id:
+      type: string
+    email:
+      type: string
+"#;
+    let head_user_broken = r#"
+User:
+  type: object
+  required: [id]
+  properties:
+    id:
+      type: string
+"#;
+    let repo = repo(&[
+        (
+            "brake.toml",
+            "[[contract]]\nname=\"users\"\nformat=\"openapi\"\nsource=\"api/users.yaml\"\n\
+             baseline={file=\"api/users.baseline.yaml\"}\n",
+        ),
+        ("api/users.baseline.yaml", base_root),
+        ("api/users.yaml", head_root),
+        ("api/models/user_base.yaml", base_user),
+        ("api/models/user.yaml", head_user_broken),
+    ]);
+
+    let output = brake(repo.path(), &["check", "--format", "json"]);
+    assert_eq!(code(&output), 1);
+    let parsed: serde_json::Value = serde_json::from_str(&stdout(&output)).expect("valid json");
+    assert_eq!(parsed["findings"][0]["rule"], "response-field-removed");
+    assert_eq!(parsed["findings"][0]["subject"], "email");
+}
+
+#[test]
+fn asyncapi_breaking_changes_detected_in_cli() {
+    let base_asyncapi = r#"
+asyncapi: '2.6.0'
+info:
+  title: Order Events
+  version: 1.0.0
+channels:
+  orders/created:
+    publish:
+      message:
+        payload:
+          type: object
+          required: [orderId, customerId]
+          properties:
+            orderId:
+              type: string
+            customerId:
+              type: string
+"#;
+    let head_asyncapi = r#"
+asyncapi: '2.6.0'
+info:
+  title: Order Events
+  version: 1.0.0
+channels:
+  orders/created:
+    publish:
+      message:
+        payload:
+          type: object
+          required: [orderId]
+          properties:
+            orderId:
+              type: string
+"#;
+    let repo = repo(&[
+        (
+            "brake.toml",
+            "[[contract]]\nname=\"orders\"\nformat=\"asyncapi\"\nsource=\"api/orders.yaml\"\n\
+             baseline={file=\"api/orders.baseline.yaml\"}\n",
+        ),
+        ("api/orders.baseline.yaml", base_asyncapi),
+        ("api/orders.yaml", head_asyncapi),
+    ]);
+
+    let output = brake(repo.path(), &["check", "--format", "json"]);
+    assert_eq!(code(&output), 1);
+    let parsed: serde_json::Value = serde_json::from_str(&stdout(&output)).expect("valid json");
+    assert_eq!(parsed["findings"][0]["rule"], "response-field-removed");
+    assert_eq!(parsed["findings"][0]["subject"], "customerId");
+}
+
+#[test]
+fn openapi_31_discriminator_and_tuple_changes_detected_in_cli() {
+    let base_spec = r#"
+openapi: 3.1.0
+paths:
+  /geo:
+    get:
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                type: array
+                prefixItems:
+                  - type: number
+                  - type: number
+"#;
+    let head_spec = r#"
+openapi: 3.1.0
+paths:
+  /geo:
+    get:
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                type: array
+                prefixItems:
+                  - type: number
+"#;
+    let repo = repo(&[
+        (
+            "brake.toml",
+            "[[contract]]\nname=\"geo\"\nformat=\"openapi\"\nsource=\"api/geo.yaml\"\n\
+             baseline={file=\"api/geo.baseline.yaml\"}\n",
+        ),
+        ("api/geo.baseline.yaml", base_spec),
+        ("api/geo.yaml", head_spec),
+    ]);
+
+    let output = brake(repo.path(), &["check", "--format", "json"]);
+    assert_eq!(code(&output), 1);
+    let parsed: serde_json::Value = serde_json::from_str(&stdout(&output)).expect("valid json");
+    assert_eq!(parsed["findings"][0]["rule"], "response-type-changed");
+    assert!(
+        parsed["findings"][0]["message"]
+            .as_str()
+            .unwrap()
+            .contains("tuple prefixItems")
     );
 }

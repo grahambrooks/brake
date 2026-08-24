@@ -16,6 +16,7 @@ use std::path::{Path, PathBuf};
 use thiserror::Error;
 
 use crate::config::{Baseline, ContractConfig, Defaults};
+use crate::contract::{DocumentResolver, FileSystemResolver, SingleDocumentResolver};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ResolvedBaseline {
@@ -24,6 +25,93 @@ pub struct ResolvedBaseline {
     /// absolute — an absolute path in a span would break guarantees G4 and G6.
     pub label: String,
     pub bytes: Vec<u8>,
+    /// Where the *rest* of a multi-document contract lives.
+    ///
+    /// Carried because a cross-file `$ref` on the baseline side has to be read
+    /// from the same place the baseline itself came from. Resolving it against
+    /// the working tree instead would put today's shared schema on both sides
+    /// of the comparison, and a field deleted from a shared file would then be
+    /// missing from both — a clean result brake cannot justify.
+    pub origin: BaselineOrigin,
+}
+
+/// Where a baseline's sibling documents are read from.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum BaselineOrigin {
+    /// A `file` baseline is a file in the working tree, so its siblings are
+    /// the working tree's too.
+    WorkingTree,
+    /// Everything else came out of a commit, and its siblings must come out of
+    /// that same commit.
+    Commit(String),
+    /// The baseline came from somewhere no sibling can be located — the legacy
+    /// `ref:path` form, whose revision is not recoverable from the spec.
+    /// A cross-file `$ref` is then reported as unmodelled rather than resolved
+    /// from a revision brake would be guessing at.
+    Isolated,
+}
+
+impl BaselineOrigin {
+    /// A resolver that reads sibling documents from wherever this baseline came
+    /// from, rooted at the contract document's own directory.
+    ///
+    /// `document_dir` is repository-relative and `/`-separated — the parent of
+    /// the contract's `source`. Rooting there rather than at the repository
+    /// keeps the boundary the one that is documented: a `$ref` reaches the
+    /// document's directory and no further.
+    #[must_use]
+    pub fn resolver(&self, repo_root: &Path, document_dir: &str) -> Box<dyn DocumentResolver> {
+        match self {
+            Self::WorkingTree => Box::new(FileSystemResolver::new(repo_root.join(document_dir))),
+            Self::Commit(id) => Box::new(CommitResolver {
+                repo_root: repo_root.to_path_buf(),
+                commit: id.clone(),
+                prefix: document_dir.to_owned(),
+            }),
+            Self::Isolated => Box::new(SingleDocumentResolver),
+        }
+    }
+}
+
+/// Reads sibling documents out of one commit's tree.
+///
+/// The repository is opened per lookup rather than held, so the resolver stays
+/// `Send + Sync` without a lock. The cost is bounded: an ingester reads each
+/// external document once and caches it.
+#[derive(Debug, Clone)]
+struct CommitResolver {
+    repo_root: PathBuf,
+    commit: String,
+    /// The contract document's directory, so a lookup is resolved the same way
+    /// the working-tree resolver resolves it.
+    prefix: String,
+}
+
+impl DocumentResolver for CommitResolver {
+    fn resolve(&self, relative_path: &str) -> Option<Vec<u8>> {
+        if Path::new(relative_path).is_absolute() {
+            return None;
+        }
+        let repo = gix::open(&self.repo_root).ok()?;
+        let id = gix::ObjectId::from_hex(self.commit.as_bytes()).ok()?;
+        let tree = repo
+            .find_object(id)
+            .ok()?
+            .peel_to_kind(gix::object::Kind::Commit)
+            .ok()?
+            .try_into_commit()
+            .ok()?
+            .tree()
+            .ok()?;
+        let full = if self.prefix.is_empty() {
+            relative_path.to_owned()
+        } else {
+            format!("{}/{relative_path}", self.prefix)
+        };
+        let entry = tree.lookup_entry_by_path(Path::new(&full)).ok()??;
+        let mut blob = entry.object().ok()?.try_into_blob().ok()?;
+        Some(blob.take_data())
+    }
 }
 
 /// Resolve the baseline for a contract, honouring a command-line override.
@@ -64,6 +152,7 @@ fn resolve_file(
     Ok(ResolvedBaseline {
         label: crate::check::display_path(file),
         bytes,
+        origin: BaselineOrigin::WorkingTree,
     })
 }
 
@@ -96,6 +185,10 @@ fn resolve_git_spec(
     Ok(ResolvedBaseline {
         label: format!("git:{spec}"),
         bytes: blob.take_data(),
+        // `rev_parse_single` resolved straight to a blob, so the commit it came
+        // from is not in hand. Guessing at one would compare a baseline
+        // document against sibling schemas from a different revision.
+        origin: BaselineOrigin::Isolated,
     })
 }
 
@@ -261,16 +354,17 @@ fn read_source_at(
         details,
     };
 
-    let tree = repo
+    let commit = repo
         .find_object(id)
         .map_err(|error| describe(error.to_string()))?
         // A tag ref may point at a tag object rather than a commit.
         .peel_to_kind(gix::object::Kind::Commit)
         .map_err(|error| describe(error.to_string()))?
         .try_into_commit()
-        .map_err(|error| describe(error.to_string()))?
-        .tree()
         .map_err(|error| describe(error.to_string()))?;
+    // Captured after peeling: a tag object's own id would not name a tree.
+    let commit_id = commit.id().to_hex().to_string();
+    let tree = commit.tree().map_err(|error| describe(error.to_string()))?;
 
     let entry = tree
         .lookup_entry_by_path(&contract.source)
@@ -292,6 +386,7 @@ fn read_source_at(
     Ok(ResolvedBaseline {
         label: label.to_owned(),
         bytes: blob.take_data(),
+        origin: BaselineOrigin::Commit(commit_id),
     })
 }
 

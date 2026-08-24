@@ -584,6 +584,7 @@ fn finding_json(finding: &Finding) -> Value {
         "message": finding.message,
         "rationale": rule.map(|rule| rule.explanation),
         "help_uri": rule.map(catalogue::Rule::help_uri),
+        "suggested_suppression": finding.suggest_suppression(None, None),
         "remediation": remediation
             .iter()
             .map(|item| json!({
@@ -695,8 +696,9 @@ fn parse_format(input: &str) -> Result<ContractFormat, ToolFailure> {
         "openapi" => Ok(ContractFormat::Openapi),
         "proto" | "protobuf" => Ok(ContractFormat::Proto),
         "graphql" => Ok(ContractFormat::Graphql),
+        "asyncapi" => Ok(ContractFormat::Asyncapi),
         other => Err(ToolFailure::new(format!(
-            "unknown format `{other}`; expected one of: openapi, proto, graphql"
+            "unknown format `{other}`; expected one of: openapi, proto, graphql, asyncapi"
         ))),
     }
 }
@@ -720,6 +722,7 @@ pub fn format_name(format: ContractFormat) -> &'static str {
         ContractFormat::Openapi => "openapi",
         ContractFormat::Proto => "proto",
         ContractFormat::Graphql => "graphql",
+        ContractFormat::Asyncapi => "asyncapi",
     }
 }
 
@@ -765,7 +768,7 @@ fn pretty(value: &Value) -> String {
 pub fn tool_schemas() -> BTreeMap<&'static str, Value> {
     let format = json!({
         "type": "string",
-        "enum": ["openapi", "proto", "graphql"],
+        "enum": ["openapi", "proto", "graphql", "asyncapi"],
         "description": "The contract format of the documents supplied.",
     });
     let compatibility = json!({

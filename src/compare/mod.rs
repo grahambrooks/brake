@@ -12,7 +12,7 @@ use crate::contract::{
 };
 
 pub mod types;
-use types::{TypeDirection, TypeIssue};
+pub use types::{SubtypeResult, TypeDirection, TypeIssue, check_subtype};
 
 /// What changed between two contracts, with enough location to point at it.
 ///
