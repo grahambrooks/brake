@@ -1,0 +1,67 @@
+docs/mcp.md
+  s_268510cb796fab::t_5afeee998c4b14 22-26,62,81,147-159
+  s_268510cb796fab::t_24719a72fded96 160
+tests/agent_guidance_is_consistent.rs
+  s_268510cb796fab::t_b4f94a4b0d777c 1-29,31-120
+  s_268510cb796fab::t_8dd5dd83d576a1 30
+.claude/skills/api-compatibility/SKILL.md
+  s_268510cb796fab::t_e76d786ab825ff 3,64,99-113
+docs/configuration.md
+  s_268510cb796fab::t_81e3daa5238648 28,70,210-240,265
+.junie/skills/api-compatibility/SKILL.md
+  s_268510cb796fab::t_e76d786ab825ff 3-113
+  s_268510cb796fab::t_706097f0790acc 1-2,114-131
+docs/README.md
+  s_268510cb796fab::t_5afeee998c4b14 6-8,18
+.junie/skills/brake-triage/SKILL.md
+  s_268510cb796fab::t_e76d786ab825ff 72-113
+  s_268510cb796fab::t_20e207ae9e306f 1-71,114-128
+Makefile
+  s_268510cb796fab::t_3dac219eac48e1 35,62-68
+  s_268510cb796fab::t_fc1df339c73d16 69
+docs/formats.md
+  s_268510cb796fab::t_a9d6e7fed36653 1-130
+docs/getting-started.md
+  s_268510cb796fab::t_a5a5c646ed7163 33-36,154-162
+.claude/skills/brake-triage/SKILL.md
+  s_268510cb796fab::t_e76d786ab825ff 72-77,100,113
+CLAUDE.md
+  s_268510cb796fab::t_3f882f29c02e78 30
+  s_268510cb796fab::t_3fb8d00724a91d 24-29,31-32,88-113,148,152-153,157-158,177
+.claude/skills/brake-adopt/SKILL.md
+  s_268510cb796fab::t_e76d786ab825ff 23-24,98-103
+  s_268510cb796fab::t_f1c41f8a51907c 104
+AGENTS.md
+  s_268510cb796fab::t_3f882f29c02e78 26-179
+  s_268510cb796fab::t_8dd5dd83d576a1 4
+  s_268510cb796fab::t_fdedd087f63ee7 1-3
+  s_268510cb796fab::t_eed58208d2748a 5-7,23-25
+  s_268510cb796fab::t_df51e630518ee9 180-182
+  s_268510cb796fab::t_c29f478418b633 8-22,183-219
+docs/ci.md
+  s_268510cb796fab::t_aba3904c5b9996 158-160
+  s_268510cb796fab::t_60892508552a6e 117-157,161-163
+README.md
+  s_268510cb796fab::t_89be712f63f15c 15,82-90,295-302,309
+.junie/skills/brake-adopt/SKILL.md
+  s_268510cb796fab::t_e76d786ab825ff 23-103
+  s_268510cb796fab::t_24cc123589e70d 1-22,104-166
+.junie/skills/brake-consumer-impact/SKILL.md
+  s_268510cb796fab::t_c4c7cf77ad5124 1-95
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.24",
+  "base_commit_sha": "a3f4bd988187680fd0f6f766637e3af9d8497edf",
+  "prompts": {},
+  "sessions": {
+    "s_268510cb796fab": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9ce2862a-1e85-48b8-9a49-c231f4fa0db2",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Graham Brooks <graham@grahambrooks.com>"
+    }
+  }
+}
