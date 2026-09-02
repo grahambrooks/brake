@@ -10,8 +10,8 @@ class Brake < Formula
 
   on_macos do
     if Hardware::CPU.arm?
-      url "https://github.com/grahambrooks/brake/releases/download/v2026.8.4/brake-v2026.8.4-aarch64-apple-darwin.tar.gz"
-      sha256 "b3874032248e8abd8eef8cdf4b10230087efe92f56c93aa1d5f764ed01fc2a14"
+      url "https://github.com/grahambrooks/brake/archive/refs/tags/v2026.9.1.tar.gz"
+      sha256 "5656a06240fe0ae626ec4f7470549d209dbfa942f434cfdb2df5588629929825"
     elsif Hardware::CPU.intel?
       url "https://github.com/grahambrooks/brake/releases/download/v2026.8.4/brake-v2026.8.4-x86_64-apple-darwin.tar.gz"
       sha256 "54bb95b968fd64fa2cd7cf1255b46fb29444730b501db7a1aea2a223493a93a5"
