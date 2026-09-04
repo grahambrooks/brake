@@ -23,7 +23,7 @@ categories = ["development-tools", "command-line-utilities"]
 # Tracks latest stable, and is pinned a second time in rust-toolchain.toml so a
 # laptop, CI and a release runner all compile with the same compiler. Declaring
 # a floor nothing is tested at is worse than declaring an honest one.
-rust-version = "1.98.0"
+rust-version = "1.98.1"
 
 [lib]
 name = "brake"
