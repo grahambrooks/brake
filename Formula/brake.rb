@@ -5,26 +5,26 @@
 class Brake < Formula
   desc "A brake on breaking API changes: checks API contracts for backward compatibility"
   homepage "https://github.com/grahambrooks/brake"
-  version "2026.8.4"
+  version "2026.9.2"
   license "MIT"
 
   on_macos do
     if Hardware::CPU.arm?
-      url "https://github.com/grahambrooks/brake/archive/refs/tags/v2026.9.1.tar.gz"
-      sha256 "5656a06240fe0ae626ec4f7470549d209dbfa942f434cfdb2df5588629929825"
+      url "https://github.com/grahambrooks/brake/releases/download/v2026.9.2/brake-v2026.9.2-aarch64-apple-darwin.tar.gz"
+      sha256 "51022a88826cfebbde92f805d1dda50f7fdbc6f31cdf9d7094e4b49fbfcb33c4"
     elsif Hardware::CPU.intel?
-      url "https://github.com/grahambrooks/brake/releases/download/v2026.8.4/brake-v2026.8.4-x86_64-apple-darwin.tar.gz"
-      sha256 "54bb95b968fd64fa2cd7cf1255b46fb29444730b501db7a1aea2a223493a93a5"
+      url "https://github.com/grahambrooks/brake/releases/download/v2026.9.2/brake-v2026.9.2-x86_64-apple-darwin.tar.gz"
+      sha256 "b707979ef19ba5be0ea33056b7d6a4a50c831c45771913128ed321aafbd56fa0"
     end
   end
 
   on_linux do
     if Hardware::CPU.arm?
-      url "https://github.com/grahambrooks/brake/releases/download/v2026.8.4/brake-v2026.8.4-aarch64-unknown-linux-gnu.tar.gz"
-      sha256 "82de81f1abea32449798e3929ab4f3da95b826a87bd143a1829d86fd969a0e43"
+      url "https://github.com/grahambrooks/brake/releases/download/v2026.9.2/brake-v2026.9.2-aarch64-unknown-linux-gnu.tar.gz"
+      sha256 "01b119c7890b8d26b8a76d286ad7ffb57cc2d92764bf3a16ac2449d0ce4b57af"
     elsif Hardware::CPU.intel?
-      url "https://github.com/grahambrooks/brake/releases/download/v2026.8.4/brake-v2026.8.4-x86_64-unknown-linux-gnu.tar.gz"
-      sha256 "99ed156581b597bea352eaaaf804684352ee249419309005858e9730890bc924"
+      url "https://github.com/grahambrooks/brake/releases/download/v2026.9.2/brake-v2026.9.2-x86_64-unknown-linux-gnu.tar.gz"
+      sha256 "0b4c1de8da10677e1f7f40680291861404b9765535a892e972831efb94e792df"
     end
   end
 
