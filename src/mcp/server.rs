@@ -17,7 +17,7 @@ use rmcp::model::{
     GetPromptRequestParams, GetPromptResponse, GetPromptResult, Implementation, ListPromptsResult,
     ListResourcesResult, ListToolsResult, PaginatedRequestParams, Prompt, PromptArgument,
     PromptMessage, ReadResourceRequestParams, ReadResourceResponse, ReadResourceResult, Resource,
-    ResourceContents, Role, ServerCapabilities, ServerInfo, Tool,
+    ResourceContents, Role, ServerCapabilities, ServerConfig, Tool,
 };
 use rmcp::service::{RequestContext, RoleServer};
 use rmcp::{ServerHandler, ServiceExt};
@@ -113,8 +113,8 @@ fn decode<T: serde::de::DeserializeOwned>(arguments: Value) -> Result<T, handler
 }
 
 impl ServerHandler for BrakeServer {
-    fn get_info(&self) -> ServerInfo {
-        ServerInfo::new(
+    fn get_info(&self) -> ServerConfig {
+        ServerConfig::new(
             ServerCapabilities::builder()
                 .enable_tools()
                 .enable_resources()
