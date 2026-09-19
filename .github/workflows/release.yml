@@ -1,271 +1,199 @@
-# Releasing brake: prebuilt binaries, a GitHub Release, the Homebrew formula,
-# and the crates.io publish.
+# Standard release workflow for grahambrooks Rust tools (release-kit v2).
 #
-# Ordering matters and is deliberate. `build` produces the artefacts, `release`
-# publishes them and computes their checksums, `formula` commits a Homebrew
-# formula pinned to those checksums, and `publish` pushes to crates.io last —
-# it is the irreversible step, so everything that can fail goes before it.
+# This file and scripts/release.py are byte-identical in every repo; everything
+# repo-specific lives in .release.env. Re-sync with release-kit/stamp.sh.
 #
-# Binaries exist because `cargo install` needs a Rust toolchain, and brake's
-# pitch is that it works on a fresh checkout with nothing installed. Requiring
-# a compiler to obtain the tool that makes that claim is a poor first
-# impression.
-
+# The tag is the version. Push a CalVer tag (vYYYY.M.N) — by hand, or let
+# auto-managed's monthly job create it — and this workflow:
+#   1. plans the build from .release.env and the tag,
+#   2. makes sure a GitHub Release exists for the tag (auto-managed creates one),
+#   3. stamps the tag's version into Cargo.toml and builds every target,
+#      uploading <bin>-<tag>-<target>.tar.gz (.zip on Windows) with the binaries
+#      at the archive root — the layout bx and Homebrew both expect,
+#   4. publishes SHA256SUMS, then opens and merges one PR that updates the in-repo
+#      Homebrew formula and bumps Cargo.toml to the released version,
+#   5. optionally publishes to crates.io (PUBLISH_CRATE=true), last, because it is
+#      the one step that cannot be undone.
+#
+# Re-run a tag (e.g. after fixing a runner problem): Actions → release → Run
+# workflow, with the tag. The tag must already contain this workflow.
 name: release
 
 on:
-  workflow_dispatch:
-    inputs:
-      dry_run:
-        description: Run `cargo publish --dry-run` and stop
-        type: boolean
-        default: true
   push:
     tags:
-      - "v*"
+      - 'v*.*.*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing tag to build and publish (e.g. v2026.9.3)
+        required: true
+
+permissions:
+  contents: read
 
 concurrency:
-  group: release
+  group: release-${{ inputs.tag || github.ref_name }}
   cancel-in-progress: false
 
 env:
   CARGO_TERM_COLOR: always
-
-permissions:
-  contents: write
+  TAG: ${{ inputs.tag || github.ref_name }}
 
 jobs:
-  # One binary per target. `include` rather than a bare matrix because the
-  # runner, the archive format and the cross-compilation needs differ per
-  # target and pairing them explicitly is easier to read than three lookups.
-  build:
-    name: ${{ matrix.target }}
-    # Only for a real release. A `workflow_dispatch` dry run is about the
-    # crates.io package, and building five targets to prove that would cost
-    # ten minutes for nothing.
-    if: startsWith(github.ref, 'refs/tags/')
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - target: aarch64-apple-darwin
-            os: macos-15
-          - target: x86_64-apple-darwin
-            os: macos-15
-          - target: x86_64-unknown-linux-gnu
-            os: ubuntu-24.04
-          - target: aarch64-unknown-linux-gnu
-            os: ubuntu-24.04
-            cross: true
-          - target: x86_64-pc-windows-msvc
-            os: windows-2022
-            windows: true
+  plan:
+    name: plan
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.plan.outputs.version }}
+      matrix: ${{ steps.plan.outputs.matrix }}
+      archive: ${{ steps.plan.outputs.archive }}
+      bins: ${{ steps.plan.outputs.bins }}
+      package: ${{ steps.plan.outputs.package }}
+      features: ${{ steps.plan.outputs.features }}
+      manifest_path: ${{ steps.plan.outputs.manifest_path }}
+      publish_crate: ${{ steps.plan.outputs.publish_crate }}
     steps:
       - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@stable
-
-      # Not the action's `targets:` input. That adds the target to the
-      # `stable` toolchain, while rust-toolchain.toml pins `1.98` — a
-      # different rustup toolchain even when stable happens to be 1.98.0.
-      # Cargo obeys the file, so the target has to be added to what the file
-      # selects. Every native target built fine and both cross targets failed
-      # with `can't find crate for core`, which is exactly this.
-      - name: Add the target to the pinned toolchain
-        shell: bash
-        run: |
-          set -euo pipefail
-          rustup show active-toolchain
-          rustup target add ${{ matrix.target }}
-
-      - uses: Swatinem/rust-cache@v2
         with:
-          key: ${{ matrix.target }}
-
-      # The only target needing a cross-linker. Installing it unconditionally
-      # would slow every Linux build for the benefit of one.
-      - name: Install the aarch64 cross-linker
-        if: matrix.cross
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y gcc-aarch64-linux-gnu
-          echo "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc" >> "$GITHUB_ENV"
-
-      # `--features mcp` deliberately: the MCP server is off by default to
-      # spare a library consumer the async runtime, but someone installing a
-      # *binary* wants `brake mcp` to work without rebuilding.
-      - name: Build
-        run: cargo build --profile dist --locked --features mcp --target ${{ matrix.target }}
-
-      - name: Package (unix)
-        if: '!matrix.windows'
-        shell: bash
-        run: |
-          set -euo pipefail
-          name="brake-${GITHUB_REF_NAME}-${{ matrix.target }}"
-          mkdir -p "dist/${name}"
-          cp "target/${{ matrix.target }}/dist/brake" "dist/${name}/"
-          cp README.md LICENSE "dist/${name}/"
-          tar -C dist -czf "${name}.tar.gz" "${name}"
-          shasum -a 256 "${name}.tar.gz" > "${name}.tar.gz.sha256"
-
-      - name: Package (windows)
-        if: matrix.windows
-        shell: bash
-        run: |
-          set -euo pipefail
-          name="brake-${GITHUB_REF_NAME}-${{ matrix.target }}"
-          mkdir -p "dist/${name}"
-          cp "target/${{ matrix.target }}/dist/brake.exe" "dist/${name}/"
-          cp README.md LICENSE "dist/${name}/"
-          (cd dist && 7z a "../${name}.zip" "${name}") > /dev/null
-          sha256sum "${name}.zip" > "${name}.zip.sha256"
-
-      # Proves the artefact runs before it is offered to anyone. A release
-      # whose binary does not start is worse than no release.
-      - name: Smoke-test the binary
-        if: '!matrix.cross'
-        shell: bash
-        run: |
-          set -euo pipefail
-          binary="target/${{ matrix.target }}/dist/brake"
-          [ "${{ matrix.windows }}" = "true" ] && binary="${binary}.exe"
-          "$binary" --version
-          "$binary" explain response-field-removed > /dev/null
-          "$binary" mcp --help > /dev/null
-
-      - uses: actions/upload-artifact@v7
-        with:
-          name: brake-${{ matrix.target }}
-          path: |
-            *.tar.gz
-            *.tar.gz.sha256
-            *.zip
-            *.zip.sha256
-          if-no-files-found: error
+          ref: ${{ env.TAG }}
+      - id: plan
+        env:
+          REPO_PRIVATE: ${{ github.event.repository.private }}
+        run: python3 scripts/release.py plan "$TAG"
 
   release:
-    needs: build
-    if: startsWith(github.ref, 'refs/tags/')
-    runs-on: ubuntu-24.04
-    outputs:
-      checksums: ${{ steps.checksums.outputs.json }}
+    name: ensure github release
+    needs: plan
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/download-artifact@v8
-        with:
-          path: artifacts
-          merge-multiple: true
-
-      - id: checksums
-        name: Collect the checksums
-        shell: bash
+      - env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          cd artifacts
-          cat *.sha256 > SHA256SUMS
-          # Emitted as JSON so the formula job can look a target up by name
-          # rather than parsing the same file twice in two shells.
-          python3 - <<'PYTHON' >> "$GITHUB_OUTPUT"
-          import json, pathlib, re
-          sums = {}
-          for line in pathlib.Path("SHA256SUMS").read_text().splitlines():
-              digest, _, name = line.partition("  ")
-              name = name.strip()
-              match = re.search(r"brake-[^-]+-(.+?)\.(tar\.gz|zip)$", name)
-              if match:
-                  sums[match.group(1)] = digest.strip()
-          print("json=" + json.dumps(sums))
-          PYTHON
-          cat SHA256SUMS
+          if gh release view "$TAG" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Release $TAG already exists"
+          else
+            gh release create "$TAG" -R "$GITHUB_REPOSITORY" --verify-tag --title "$TAG" --generate-notes
+          fi
 
-      - uses: softprops/action-gh-release@v3
-        with:
-          files: |
-            artifacts/*.tar.gz
-            artifacts/*.zip
-            artifacts/SHA256SUMS
-          generate_release_notes: true
-          fail_on_unmatched_files: true
-
-  # The formula is committed here rather than to a `homebrew-brake` tap, so
-  # the tap command needs an explicit URL. See README.
-  formula:
-    needs: release
-    if: startsWith(github.ref, 'refs/tags/')
-    runs-on: ubuntu-24.04
+  build:
+    name: build (${{ matrix.target }})
+    needs: [plan, release]
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: main
-      - name: Render Formula/brake.rb
+          ref: ${{ env.TAG }}
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: release-${{ matrix.target }}
+          workspaces: ${{ matrix.workspace }}
+      - name: Stamp version ${{ needs.plan.outputs.version }}
+        run: python3 scripts/release.py set-version "${{ needs.plan.outputs.version }}"
+      - name: Build, package, and upload
+        uses: taiki-e/upload-rust-binary-action@v1
+        with:
+          bin: ${{ needs.plan.outputs.bins }}
+          package: ${{ needs.plan.outputs.package }}
+          features: ${{ needs.plan.outputs.features }}
+          manifest-path: ${{ needs.plan.outputs.manifest_path }}
+          target: ${{ matrix.target }}
+          archive: ${{ needs.plan.outputs.archive }}
+          tar: unix
+          zip: windows
+          ref: refs/tags/${{ env.TAG }}
+          token: ${{ github.token }}
+
+  finalize:
+    name: checksums + formula
+    needs: [plan, build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+      - name: Publish SHA256SUMS
         env:
-          CHECKSUMS: ${{ needs.release.outputs.checksums }}
-        shell: bash
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          VERSION="${GITHUB_REF_NAME#v}"
-          mkdir -p Formula
-          VERSION="$VERSION" python3 .github/render-formula.py > Formula/brake.rb
-          cat Formula/brake.rb
-
-      - name: Commit it
-        shell: bash
+          mkdir -p "$RUNNER_TEMP/dist"
+          gh release download "$TAG" -R "$GITHUB_REPOSITORY" -D "$RUNNER_TEMP/dist" -p '*.tar.gz' -p '*.zip'
+          python3 scripts/release.py sums "$RUNNER_TEMP/dist" > "$RUNNER_TEMP/SHA256SUMS"
+          cat "$RUNNER_TEMP/SHA256SUMS"
+          gh release upload "$TAG" -R "$GITHUB_REPOSITORY" "$RUNNER_TEMP/SHA256SUMS" --clobber
+      - name: Render formula and bump Cargo.toml
+        run: |
+          set -euo pipefail
+          python3 scripts/release.py formula "$TAG" "$RUNNER_TEMP/SHA256SUMS"
+          python3 scripts/release.py set-version "${{ needs.plan.outputs.version }}"
+      # The automation-guard ruleset only lets changes reach the default branch
+      # through a pull request; it asks for no approvals or checks, so opening and
+      # merging one satisfies it rather than working around it.
+      - name: Open and merge release PR
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BASE: ${{ github.event.repository.default_branch }}
         run: |
           set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-
-          # Staged, then compared against the index. `git diff` alone reports
-          # no change for an *untracked* file, so the very first formula — the
-          # one release this most needed to work — was silently skipped while
-          # the job reported success.
-          git add Formula/brake.rb
-          if git diff --cached --quiet -- Formula/brake.rb; then
-            echo "::notice::formula unchanged"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "Formula and version already current"
             exit 0
           fi
-          git commit -m "chore(release): Homebrew formula for ${GITHUB_REF_NAME}"
-          git push origin main
-          echo "::notice::committed Formula/brake.rb for ${GITHUB_REF_NAME}"
+          branch="release/${TAG}"
+          title="Release ${TAG}: update Homebrew formula and version"
+          git checkout -b "$branch"
+          git commit -m "$title"
+          git push --force origin "$branch"
+          pr=$(gh pr list --head "$branch" --state open --json number -q '.[0].number // empty')
+          if [ -z "$pr" ]; then
+            pr=$(gh pr create --base "$BASE" --head "$branch" --title "$title" \
+                   --body "Generated by the release workflow from the published ${TAG} assets." \
+                 | awk -F/ '{print $NF}')
+          fi
+          if ! gh pr merge "$pr" --squash --delete-branch; then
+            state=$(gh pr view "$pr" --json state -q .state)
+            if [ "$state" != "MERGED" ]; then
+              echo "::error::release PR #${pr} could not be merged (state=${state})"
+              exit 1
+            fi
+          fi
 
-  publish:
-    needs: [build, release, formula]
-    # crates.io is the irreversible step, so it runs only once the artefacts
-    # exist and the formula is committed.
-    if: always() && !cancelled() && !failure()
-    runs-on: ubuntu-24.04
-    environment: crates-io
+  publish-crate:
+    name: publish to crates.io
+    needs: [plan, finalize]
+    if: needs.plan.outputs.publish_crate == 'true'
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ env.TAG }}
       - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-
-      - id: version
-        run: |
-          set -euo pipefail
-          VERSION=$(grep -m1 '^version = ' Cargo.toml | cut -d'"' -f2)
-          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
-          echo "::notice::Cargo.toml declares ${VERSION}"
-
-      - name: Verify tag matches Cargo.toml version
-        if: startsWith(github.ref, 'refs/tags/')
-        run: |
-          set -euo pipefail
-          TAG_VERSION="${GITHUB_REF_NAME#v}"
-          if [[ "${TAG_VERSION}" != "${{ steps.version.outputs.version }}" ]]; then
-            echo "::error::tag ${GITHUB_REF_NAME} does not match Cargo.toml version ${{ steps.version.outputs.version }}"
-            exit 1
-          fi
-
-      - name: Publish
-        run: |
-          set -euo pipefail
-          if [[ "${{ github.event_name }}" == "workflow_dispatch" && "${{ inputs.dry_run }}" == "true" ]]; then
-            echo "::notice::dry run — nothing will be published"
-            cargo publish -p brake --dry-run
-            exit 0
-          fi
-          cargo publish -p brake
+      - name: Publish unless already published
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "${CARGO_REGISTRY_TOKEN}" ]; then
+            echo "::error::PUBLISH_CRATE=true but the CARGO_REGISTRY_TOKEN secret is not set"
+            exit 1
+          fi
+          python3 scripts/release.py set-version "${{ needs.plan.outputs.version }}"
+          python3 scripts/release.py publish-crate "${{ needs.plan.outputs.version }}"
