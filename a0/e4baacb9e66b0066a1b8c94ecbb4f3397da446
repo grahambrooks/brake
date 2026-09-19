@@ -1,0 +1,19 @@
+src/mcp/server.rs
+  s_26fc27f0915cea::t_a239f5fd008fd0 20,116-117
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "a0e4baacb9e66b0066a1b8c94ecbb4f3397da446",
+  "prompts": {},
+  "sessions": {
+    "s_26fc27f0915cea": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "eae6d14d-ce4a-41d3-b0c0-94382c75fc99",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Graham Brooks <graham@grahambrooks.com>"
+    }
+  }
+}
