@@ -1,0 +1,19 @@
+Formula/brake.rb
+  s_26fc27f0915cea::t_d18c16f9543886 8,13-14,16-17,23-24,26-27
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "f9a15a70d3e2d2259bcf1bbacc79fbe8f3c3eaaa",
+  "prompts": {},
+  "sessions": {
+    "s_26fc27f0915cea": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "eae6d14d-ce4a-41d3-b0c0-94382c75fc99",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Graham Brooks <graham@grahambrooks.com>"
+    }
+  }
+}
