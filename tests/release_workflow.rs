@@ -34,10 +34,6 @@ fn release_py(dir: &Path, args: &[&str]) -> Output {
         .args(args)
         .current_dir(dir)
         .env_remove("GITHUB_OUTPUT")
-        // release.py is byte-identical across repos and opens files without an
-        // encoding, which is cp1252 on Windows: the formula's em dash would be
-        // written as invalid UTF-8. The release itself runs on Linux.
-        .env("PYTHONUTF8", "1")
         .env("GITHUB_REPOSITORY", "grahambrooks/brake")
         .output()
         .expect("python3 should run scripts/release.py")
