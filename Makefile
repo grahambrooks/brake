@@ -36,6 +36,7 @@ help:
 	@echo 'make self-check   run brake against its own fixture contract'
 	@echo 'make version      print the next version'
 	@echo 'make release-dry  show what a release would do, without doing it'
+	@echo 'make watch-ci     after pushing, wait for every CI run on HEAD'
 
 .PHONY: check
 check:
@@ -114,3 +115,8 @@ release: release-guard check
 	git push --quiet origin main
 	git push --quiet origin '$(TAG)'
 	@echo 'pushed $(TAG)'
+
+.PHONY: watch-ci
+watch-ci:
+	@command -v watch-ci >/dev/null || { echo "watch-ci not on PATH: ln -s ~/dev/projects/agentic-twin/scripts/watch-ci.sh ~/.local/bin/watch-ci" >&2; exit 1; }
+	watch-ci
