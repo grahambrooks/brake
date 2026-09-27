@@ -1,0 +1,19 @@
+tests/release_workflow.rs
+  s_a56911d1a432ea::t_0f652316772a41 37-40
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "7c6418c25060cc4b310482ded66401487f351eae",
+  "prompts": {},
+  "sessions": {
+    "s_a56911d1a432ea": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "704b6603-74fb-496f-8088-8c53f66de28f",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Graham Brooks <graham@grahambrooks.com>"
+    }
+  }
+}
