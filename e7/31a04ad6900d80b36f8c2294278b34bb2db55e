@@ -1,0 +1,69 @@
+design/08-mcp-tool-contracts.md
+  s_a72321dcd11d43::t_01ad7bac4fb480 1-33,37-155
+  s_a72321dcd11d43::t_5818f632ce5b6d 34-36
+  s_a72321dcd11d43::t_c0075fdd777f44 156-165
+src/contract/mcp.rs
+  s_a72321dcd11d43::t_77303297812468 1-369,381-384
+  s_a72321dcd11d43::t_6fa5c6cc74fe1d 370-380,385-410
+src/contract/openapi.rs
+  s_a72321dcd11d43::t_53daddc1c95e1c 215-242
+tests/mcp_tools.rs
+  s_a72321dcd11d43::t_1c292a92bbca5a 1-278
+  s_a72321dcd11d43::t_37bad24958b78e 279-357
+.claude/skills/api-compatibility/SKILL.md
+  s_a72321dcd11d43::t_d2ceacf5bfb244 3,64,113-117
+.claude/skills/brake-adopt/SKILL.md
+  s_a72321dcd11d43::t_3369e3f0223adb 24
+.junie/skills/api-compatibility/SKILL.md
+  s_a72321dcd11d43::t_b67a644d395d68 3,64,113-117
+.junie/skills/brake-adopt/SKILL.md
+  s_a72321dcd11d43::t_26ae611d16797a 24
+AGENTS.md
+  s_a72321dcd11d43::t_5752a576e429d8 26-29,118-122
+CLAUDE.md
+  s_a72321dcd11d43::t_63c6965dd87dd7 24-27,116-120
+README.md
+  s_a72321dcd11d43::t_0bb0c6f63f193d 15-16,83-84
+design/README.md
+  s_a72321dcd11d43::t_c9b9f493b84e5f 22,38-40
+docs/README.md
+  s_a72321dcd11d43::t_7d85a17a70c867 18
+docs/configuration.md
+  s_a72321dcd11d43::t_3943d79e280c42 28,70
+docs/formats.md
+  s_a72321dcd11d43::t_a2b6a107d304de 3,6-7,15,95-156
+docs/getting-started.md
+  s_a72321dcd11d43::t_73c8df3c4d1db0 34-35
+docs/mcp.md
+  s_a72321dcd11d43::t_3f808c6d2fee32 62,81
+src/check.rs
+  s_a72321dcd11d43::t_e6c4d9654bd4de 384-385
+src/config.rs
+  s_a72321dcd11d43::t_c053c051e4dfca 90-91
+src/contract/mod.rs
+  s_a72321dcd11d43::t_3ebc9b3c9907a4 10
+src/init.rs
+  s_a72321dcd11d43::t_e928612b6847ce 201-206,227-228,288-291,381,521-539
+src/lib.rs
+  s_a72321dcd11d43::t_7462245ab9b6c9 102-104
+src/mcp/handlers.rs
+  s_a72321dcd11d43::t_bf9d7cd5842a09 700,702,727,773
+tests/mcp.rs
+  s_a72321dcd11d43::t_98ac52964f6f2f 346-366
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "e731a04ad6900d80b36f8c2294278b34bb2db55e",
+  "prompts": {},
+  "sessions": {
+    "s_a72321dcd11d43": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "93f3f613-4242-4cd2-ae35-ed6aa76bb44f",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Graham Brooks <graham@grahambrooks.com>"
+    }
+  }
+}
