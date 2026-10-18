@@ -99,6 +99,9 @@ pub fn parse_with_resolver(
             .map_err(|e| e.to_string()),
         Format::Asyncapi => contract::asyncapi::ingest_with_resolver(source, bytes, resolver)
             .map_err(|e| e.to_string()),
+        Format::Mcp => {
+            contract::mcp::ingest_with_resolver(source, bytes, resolver).map_err(|e| e.to_string())
+        }
     }
 }
 

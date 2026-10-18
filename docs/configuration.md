@@ -25,7 +25,7 @@ baseline = { git-merge-base = "origin/main" }
 
 [[contract]]
 name = "payments"
-format = "openapi"                        # openapi | proto | graphql | asyncapi
+format = "openapi"                        # openapi | proto | graphql | asyncapi | mcp
 source = "api/payments-openapi.yaml"
 compatibility = "surface"                 # optional, overrides [defaults]
 baseline = { latest-tag = "v*" }          # optional, overrides [defaults]
@@ -67,7 +67,7 @@ it — see [Two contracts over one artifact](#two-contracts-over-one-artifact).
 | Key | Required | Meaning |
 | --- | --- | --- |
 | `name` | yes | How the contract is referred to in findings and by `--contract` |
-| `format` | yes | `openapi`, `proto`, `graphql` or `asyncapi` |
+| `format` | yes | `openapi`, `proto`, `graphql`, `asyncapi` or `mcp` |
 | `source` | yes | Repository-relative path to the head document |
 | `compatibility` | no | Overrides `[defaults]` for this contract |
 | `baseline` | no | Overrides `[defaults]` for this contract |

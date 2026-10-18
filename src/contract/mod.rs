@@ -7,6 +7,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 pub mod asyncapi;
 pub mod graphql;
+pub mod mcp;
 pub mod openapi;
 pub mod proto;
 pub mod resolver;

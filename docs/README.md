@@ -15,7 +15,7 @@ Start with **[Getting started](getting-started.md)** if you have never run it.
 | --- | --- |
 | [Getting started](getting-started.md) | Install, `brake init`, your first finding, and how to read one |
 | [Configuration](configuration.md) | Every key in `brake.toml`: contracts, baselines, compatibility levels, suppressions, drift |
-| [Contract formats](formats.md) | OpenAPI, protobuf, GraphQL and AsyncAPI — what each models, and contracts that span several files |
+| [Contract formats](formats.md) | OpenAPI, protobuf, GraphQL, AsyncAPI and MCP tool lists — what each models, and contracts that span several files |
 | [Consumer demand](consumers.md) | Declaring pacts, GraphQL operations and manifests so a finding names *who* it breaks |
 | [CI and hooks](ci.md) | The pre-commit hook, GitHub Actions, SARIF, the commit gate and the release gate |
 | [MCP server](mcp.md) | `brake mcp` — the same ruleset consulted by a coding agent while it drafts a change |

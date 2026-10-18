@@ -212,6 +212,34 @@ fn check_version(source: &str, root: &MarkedYamlOwned) -> Result<(), OpenApiErro
     })
 }
 
+/// Parse one standalone JSON Schema into a `TypeRef`.
+///
+/// For formats that embed JSON Schema with no OpenAPI document around it, such
+/// as MCP's `inputSchema`. A local `$ref` resolves against `schema` itself,
+/// because that is what `#` means inside a JSON Schema. Resolving it against
+/// the enclosing file would find nothing, or the wrong thing.
+pub(super) fn parse_json_schema(
+    source: &str,
+    schema: &MarkedYamlOwned,
+    pointer: &str,
+) -> Result<(TypeRef, Vec<Unmodelled>), OpenApiError> {
+    let mut ctx = Ctx {
+        source,
+        root: schema,
+        resolver: &SingleDocumentResolver,
+        external_docs: BTreeMap::new(),
+        current_doc_file: None,
+        ref_stack: Vec::new(),
+        unmodelled: Vec::new(),
+        fatal: None,
+    };
+    let ty = ctx.parse_schema(schema, pointer);
+    if let Some(error) = ctx.fatal {
+        return Err(error);
+    }
+    Ok((ty, ctx.unmodelled))
+}
+
 struct Ctx<'a> {
     source: &'a str,
     root: &'a MarkedYamlOwned,

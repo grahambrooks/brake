@@ -697,8 +697,9 @@ fn parse_format(input: &str) -> Result<ContractFormat, ToolFailure> {
         "proto" | "protobuf" => Ok(ContractFormat::Proto),
         "graphql" => Ok(ContractFormat::Graphql),
         "asyncapi" => Ok(ContractFormat::Asyncapi),
+        "mcp" => Ok(ContractFormat::Mcp),
         other => Err(ToolFailure::new(format!(
-            "unknown format `{other}`; expected one of: openapi, proto, graphql, asyncapi"
+            "unknown format `{other}`; expected one of: openapi, proto, graphql, asyncapi, mcp"
         ))),
     }
 }
@@ -723,6 +724,7 @@ pub fn format_name(format: ContractFormat) -> &'static str {
         ContractFormat::Proto => "proto",
         ContractFormat::Graphql => "graphql",
         ContractFormat::Asyncapi => "asyncapi",
+        ContractFormat::Mcp => "mcp",
     }
 }
 
@@ -768,7 +770,7 @@ fn pretty(value: &Value) -> String {
 pub fn tool_schemas() -> BTreeMap<&'static str, Value> {
     let format = json!({
         "type": "string",
-        "enum": ["openapi", "proto", "graphql", "asyncapi"],
+        "enum": ["openapi", "proto", "graphql", "asyncapi", "mcp"],
         "description": "The contract format of the documents supplied.",
     });
     let compatibility = json!({

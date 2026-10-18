@@ -31,7 +31,8 @@ the command does not exist.
 Two things, both already in your repository:
 
 - **A contract** — an OpenAPI 3.0/3.1 document, a protobuf 3 file, a GraphQL
-  SDL schema, or an AsyncAPI 2.x/3.x document. It may span several files: a
+  SDL schema, an AsyncAPI 2.x/3.x document, or a checked-in snapshot of an MCP
+  server's `tools/list` result. It may span several files: a
   `$ref` into a sibling document is resolved, within that document's directory
   and without a network request.
 - **A baseline** — the previous version to compare against. A git ref, a tag,

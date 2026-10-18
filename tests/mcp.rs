@@ -344,6 +344,27 @@ fn compare_contracts_works_with_no_configuration_at_all() {
 }
 
 #[test]
+fn compare_contracts_accepts_an_mcp_tool_snapshot() {
+    let bare = tempdir().expect("tempdir");
+    let mut client = Client::start(bare.path());
+    let base = r#"{"tools": [{"name": "a", "inputSchema": {"type": "object"}},
+                              {"name": "b", "inputSchema": {"type": "object"}}]}"#;
+    let head = r#"{"tools": [{"name": "a", "inputSchema": {"type": "object"}}]}"#;
+
+    let result = client.call_tool(
+        "compare_contracts",
+        json!({ "format": "mcp", "base": base, "head": head }),
+    );
+    assert_eq!(result["isError"], false, "{result}");
+    assert!(
+        result["structuredContent"]
+            .to_string()
+            .contains("endpoint-removed"),
+        "{result}"
+    );
+}
+
+#[test]
 fn an_unverifiable_payload_is_not_reported_as_clean() {
     // A human skims a warning; an agent acts on the absence of one.
     let unreadable = r#"

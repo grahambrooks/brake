@@ -12,7 +12,8 @@
 
 **A brake on breaking API changes.** It compares an API contract against its
 previous version and fails the commit when the change would break a consumer —
-across OpenAPI, protobuf, GraphQL and AsyncAPI, from one CLI and one ruleset.
+across OpenAPI, protobuf, GraphQL, AsyncAPI and MCP tool lists, from one CLI and
+one ruleset.
 
 **It never makes a network request, never runs your service, and never needs a
 toolchain.** `brake` works on a fresh checkout with nothing installed, by
@@ -79,8 +80,8 @@ Pronounced like the thing it prevents.
 
 ## Status
 
-**Working.** OpenAPI 3.0/3.1, protobuf 3, GraphQL SDL and AsyncAPI 2.x/3.x are
-all ingested and compared through one ruleset; `check`, `analyze`, `diff`,
+**Working.** OpenAPI 3.0/3.1, protobuf 3, GraphQL SDL, AsyncAPI 2.x/3.x and
+MCP `tools/list` snapshots are all ingested and compared through one ruleset; `check`, `analyze`, `diff`,
 `explain` and `consumers` are implemented, with text, JSON, SARIF, GitHub
 workflow-command and GitLab Code Quality output.
 

@@ -381,6 +381,8 @@ fn ingest(
             contract::asyncapi::ingest_with_resolver(source, bytes, resolver)
                 .map_err(|error| error.to_string())
         }
+        ContractFormat::Mcp => contract::mcp::ingest_with_resolver(source, bytes, resolver)
+            .map_err(|error| error.to_string()),
     }
 }
 

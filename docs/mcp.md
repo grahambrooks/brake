@@ -59,7 +59,7 @@ from, and it is the only directory the server will resolve a contract in.
 
 | Argument | Required | Meaning |
 | --- | --- | --- |
-| `format` | yes | `openapi`, `proto`, `graphql` or `asyncapi` |
+| `format` | yes | `openapi`, `proto`, `graphql`, `asyncapi` or `mcp` |
 | `proposed` | yes | The full proposed document, **as text** |
 | `contract` | no | Which `[[contract]]` to compare against. Required only when more than one is configured |
 | `baseline_document` | no | An inline baseline — supply it to check a change with no `brake.toml` and no repository |
@@ -78,7 +78,7 @@ guess rather than picking one.
 
 | Argument | Required | Meaning |
 | --- | --- | --- |
-| `format` | yes | `openapi`, `proto`, `graphql` or `asyncapi` |
+| `format` | yes | `openapi`, `proto`, `graphql`, `asyncapi` or `mcp` |
 | `base` | yes | The previous document, as text |
 | `head` | yes | The new document, as text |
 | `compatibility` | no | Defaults to `wire-json` |

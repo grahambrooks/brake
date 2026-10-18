@@ -23,8 +23,10 @@ including what is deliberately *not* being built — check it before
 
 ## Status
 
-M0–M6 are done, and so are M7 (protobuf), M8 (GraphQL) and AsyncAPI 2.x/3.x.
-All four ingesters produce the same `Contract` and share one comparator;
+M0–M6 are done, and so are M7 (protobuf), M8 (GraphQL), AsyncAPI 2.x/3.x and
+MCP `tools/list` snapshots
+([design/08-mcp-tool-contracts.md](design/08-mcp-tool-contracts.md)).
+All five ingesters produce the same `Contract` and share one comparator;
 `check`, `analyze`, `diff`, `explain` and `consumers` work; text, JSON, SARIF,
 GitHub workflow commands and GitLab Code Quality all render.
 
@@ -113,6 +115,11 @@ What is worth knowing before changing anything:
   reusing a reserved number or name is currently reported as `contract-partial`
   via an unmodelled entry. Never document a proposal as behaviour — check
   `src/rules/catalogue.rs`, which is the only list of rules that exist.
+- **An unmodelled entry reaches a finding only through a `TypeRef::Unknown`**
+  inside an endpoint. `Contract::unmodelled` alone is never reported, so a
+  gap with no endpoint to attach to has to be an ingest error instead. That
+  is why the MCP ingester refuses a paginated snapshot rather than marking it
+  partial.
 
 ## Core constraints
 
