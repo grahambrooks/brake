@@ -544,7 +544,8 @@ fn select_since<'a>(
         .map_err(|error| format!("failed to resolve --since ref `{reference}`: {error}"))?;
     let merge_base = repo
         .merge_base(head.detach(), reference_id.detach())
-        .map_err(|error| format!("failed to compute merge-base for --since: {error}"))?;
+        .map_err(|error| format!("failed to compute merge-base for --since: {error}"))?
+        .ok_or_else(|| format!("HEAD and --since ref `{reference}` share no history"))?;
     let tree = merge_base
         .object()
         .map_err(|error| format!("failed to read the merge-base object: {error}"))?
