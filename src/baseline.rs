@@ -278,7 +278,7 @@ fn resolve_latest_tag(
         // break.
         let is_ancestor = repo
             .merge_base(head.detach(), *id)
-            .is_ok_and(|base| base.detach() == *id);
+            .is_ok_and(|base| base.is_some_and(|base| base.detach() == *id));
         if is_ancestor {
             return read_source_at(&repo, contract, *id, name, &format!("tag:{name}"));
         }
@@ -312,9 +312,12 @@ fn resolve_merge_base(
             contract: contract.name.clone(),
             reference: reference.to_owned(),
         })?;
+    // Unrelated histories have no merge-base. That is a gate that cannot
+    // resolve, not a contract that is new, so it is reported, never guessed.
     let merge_base = repo
         .merge_base(head.detach(), target.detach())
-        .map_err(|error| describe(error.to_string()))?;
+        .map_err(|error| describe(error.to_string()))?
+        .ok_or_else(|| describe("HEAD and this ref share no history".to_owned()))?;
 
     read_source_at(
         &repo,
@@ -762,6 +765,39 @@ mod tests {
 
         let content = String::from_utf8(resolved.bytes).expect("utf-8 baseline");
         assert!(content.contains("title: base"));
+    }
+
+    /// gix 0.89 returns no merge-base, rather than an error, for unrelated
+    /// histories. It must still be a gate that cannot resolve: never a panic,
+    /// and never a contract read from somewhere it was not.
+    #[test]
+    fn unrelated_histories_have_no_merge_base_and_say_so() {
+        let root = tempdir().expect("tempdir");
+        run_git(root.path(), &["init", "-b", "main"]);
+        run_git(root.path(), &["config", "user.name", "Brake Test"]);
+        run_git(root.path(), &["config", "user.email", "brake@example.com"]);
+        write_and_commit(
+            root.path(),
+            "api/payments-openapi.yaml",
+            "openapi: 3.1.0\n",
+            "main",
+        );
+        run_git(root.path(), &["checkout", "--orphan", "unrelated"]);
+        write_and_commit(root.path(), "README.md", "# unrelated\n", "unrelated");
+
+        let defaults = Defaults {
+            compatibility: Compatibility::WireJson,
+            baseline: Some(Baseline::GitMergeBase {
+                reference: "refs/heads/main".to_owned(),
+            }),
+        };
+        let error = resolve_for_contract(root.path(), &defaults, &contract_with(None), None)
+            .expect_err("no merge-base must not resolve");
+        assert!(
+            matches!(error, BaselineError::ResolveMergeBase { .. }),
+            "{error:?}"
+        );
+        assert!(error.to_string().contains("share no history"), "{error}");
     }
 
     #[test]
