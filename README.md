@@ -148,6 +148,7 @@ brake check api/payments-openapi.yaml   # at commit time, scoped to the change
 brake check --since origin/main         # on a pull request
 brake analyze .                         # everything, in CI
 brake diff                              # describe the change, never fail
+brake compare old.yaml new.yaml         # two files, no configuration
 brake consumers                         # who uses what, and what of it
 brake explain response-field-removed    # why a rule exists
 ```
@@ -313,6 +314,7 @@ See [docs/ci.md](docs/ci.md#output-for-ci).
 | [MCP server](docs/mcp.md) | The tool surface an agent sees, and the trust posture that constrains it |
 | [Agent skills](docs/agent-skills.md) | The four skills in `.claude/skills/`, and how to install them elsewhere |
 | [Rule catalogue](docs/rules.md) | Every rule, generated from `src/rules/catalogue.rs` |
+| [Capabilities](docs/capabilities.md) | Every CLI flag and MCP argument side by side, and why each gap is there. Generated from `src/surface.rs` |
 | [Design specification](design/) | Why it is shaped this way, and what is deliberately not being built |
 
 Reference examples and expected outcomes for OpenAPI, protobuf and GraphQL are
@@ -366,8 +368,12 @@ brake = { version = "2026.8", default-features = false }
 `default-features = false` drops `clap`, colour, and terminal handling, leaving
 ingest, comparison, and the rule catalogue.
 
-`brake::compare` and `brake::evaluate` cover the compatibility rules. Call
-`brake::lint` as well to get the four structural checks `brake check` runs.
+Call `brake::check::check` for exactly what the CLI and the MCP server run:
+the CLI and the server are thin adapters over it. Supply an unsaved draft in
+`Options::overrides`, or compare two documents with no configuration with
+`brake::check::check_documents`. The primitives — `brake::compare`,
+`brake::evaluate`, `brake::lint` — remain for callers that need one piece, but
+assembling them yourself is how a caller falls behind what `check` reports.
 
 ## Licence
 

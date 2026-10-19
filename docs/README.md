@@ -26,6 +26,7 @@ Start with **[Getting started](getting-started.md)** if you have never run it.
 | Reference | What it is |
 | --- | --- |
 | [Rule catalogue](rules.md) | Every rule, its severity, the level it fires from, and the ways out. Generated from `src/rules/catalogue.rs` |
+| [Capabilities](capabilities.md) | Every CLI flag and MCP argument side by side, and why each gap is there. Generated from `src/surface.rs` |
 | [User guide test cases](user-guide-test-cases.md) | The canonical example matrix, exercised by `tests/user_guide_cases.rs` |
 | [Design specification](../design/) | Why the tool is shaped this way, and what is deliberately not being built |
 

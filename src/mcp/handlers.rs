@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 use serde::Deserialize;
 use serde_json::{Value, json};
 
-use crate::check::{self, Options as CheckOptions, Scope};
+use crate::check::{self, Document, Options as CheckOptions, Scope, Trust};
 use crate::config::{Baseline, Compatibility, Config, ContractConfig, ContractFormat};
 use crate::report::Report;
 use crate::rules::{Finding, catalogue, strategies};
@@ -33,8 +33,9 @@ impl Context {
 
     /// The check options every tool uses.
     ///
-    /// `drift` is absent from this struct rather than set to `false`, so a
-    /// future edit cannot turn it on by flipping a flag — see the module docs.
+    /// `trust` is what keeps a tool call away from the `--drift` subprocess:
+    /// the core refuses an untrusted caller whatever `drift` says, so no edit
+    /// here can turn it on by flipping a flag.
     fn check_options(&self, compatibility: Option<Compatibility>) -> CheckOptions {
         CheckOptions {
             as_of: Some(self.as_of.clone()),
@@ -43,9 +44,8 @@ impl Context {
             // did not look at is not dead.
             report_stale: false,
             compatibility,
-            baseline: None,
-            only: Vec::new(),
-            consumers: Vec::new(),
+            trust: Trust::Untrusted,
+            ..CheckOptions::default()
         }
     }
 }
@@ -109,9 +109,23 @@ pub fn check_change(context: &Context, args: CheckChangeArgs) -> ToolResult {
     let format = parse_format(&args.format)?;
     let level = args.compatibility.as_deref().map(parse_level).transpose()?;
 
-    // An inline baseline needs no configuration and no repository.
-    if let Some(baseline) = &args.baseline_document {
-        return compare_documents(format, baseline, &args.proposed, level, "proposed");
+    // An inline baseline with no contract named: two documents, and no
+    // repository involved at all.
+    if let (Some(baseline), None) = (&args.baseline_document, &args.contract) {
+        let level = level.unwrap_or(Compatibility::WireJson);
+        let report = check::check_documents(
+            format,
+            Document {
+                label: "baseline",
+                bytes: baseline.as_bytes(),
+            },
+            Document {
+                label: "proposed",
+                bytes: args.proposed.as_bytes(),
+            },
+            level,
+        );
+        return answer(&report, level);
     }
 
     let config = load_config(&context.repo_root)?;
@@ -125,25 +139,21 @@ pub fn check_change(context: &Context, args: CheckChangeArgs) -> ToolResult {
         )));
     }
 
-    // The proposed document is compared in place of what is on disk: the whole
-    // point is that it has not been written yet.
-    let head = crate::parse(format, "proposed", args.proposed.as_bytes()).map_err(|error| {
-        ToolFailure::new(format!("the proposed document did not parse: {error}"))
-    })?;
-
-    let resolved =
-        crate::baseline::resolve_for_contract(&context.repo_root, &config.defaults, contract, None)
-            .map_err(|error| ToolFailure::new(error.to_string()))?;
-    let base = crate::parse(format, &resolved.label, &resolved.bytes)
-        .map_err(|error| ToolFailure::new(format!("the baseline did not parse: {error}")))?;
+    // The proposed document stands in for the file on disk, and the run is the
+    // one the commit hook makes for that file. So the draft gets every rule,
+    // suppression and consumer check the hook applies. See
+    // design/09-one-core-three-surfaces.md.
+    let mut options = context.check_options(level);
+    options.only = vec![contract.name.clone()];
+    options
+        .overrides
+        .insert(contract.source.clone(), args.proposed.into_bytes());
+    options.baseline_document = args.baseline_document.map(String::into_bytes);
+    let scope = Scope::Paths(vec![contract.source.clone()]);
+    let report = check::check(&context.repo_root, &config, &scope, &options);
 
     let level = level.unwrap_or_else(|| contract.effective_compatibility(&config.defaults));
-    let mut findings = evaluate_pair(&base, &head, &contract.name, level);
-    // The same `affects` list `brake check` renders: an agent asking whether a
-    // change is safe wants the name of who it breaks, not just the rule.
-    let bound = bind_declared(&context.repo_root, &config, &contract.name, &head);
-    crate::demand::policy::attribute(&mut findings, &bound);
-    Ok(render_findings(&findings, level, 1))
+    answer(&report, level)
 }
 
 /// Every declared consumer of one contract, bound to a contract document.
@@ -256,26 +266,25 @@ pub struct CompareContractsArgs {
 
 pub fn compare_contracts(_context: &Context, args: CompareContractsArgs) -> ToolResult {
     let format = parse_format(&args.format)?;
-    let level = args.compatibility.as_deref().map(parse_level).transpose()?;
-    compare_documents(format, &args.base, &args.head, level, "head")
-}
-
-fn compare_documents(
-    format: ContractFormat,
-    base: &str,
-    head: &str,
-    level: Option<Compatibility>,
-    head_label: &str,
-) -> ToolResult {
-    let base_contract = crate::parse(format, "baseline", base.as_bytes())
-        .map_err(|error| ToolFailure::new(format!("the baseline did not parse: {error}")))?;
-    let head_contract = crate::parse(format, head_label, head.as_bytes()).map_err(|error| {
-        ToolFailure::new(format!("the {head_label} document did not parse: {error}"))
-    })?;
-
-    let level = level.unwrap_or(Compatibility::WireJson);
-    let findings = evaluate_pair(&base_contract, &head_contract, "inline", level);
-    Ok(render_findings(&findings, level, 1))
+    let level = args
+        .compatibility
+        .as_deref()
+        .map(parse_level)
+        .transpose()?
+        .unwrap_or(Compatibility::WireJson);
+    let report = check::check_documents(
+        format,
+        Document {
+            label: "baseline",
+            bytes: args.base.as_bytes(),
+        },
+        Document {
+            label: "head",
+            bytes: args.head.as_bytes(),
+        },
+        level,
+    );
+    answer(&report, level)
 }
 
 // ── explain_rule ────────────────────────────────────────────────────────────
@@ -303,9 +312,23 @@ pub fn explain_rule(_context: &Context, args: ExplainRuleArgs) -> ToolResult {
 
 #[derive(Debug, Default, Deserialize)]
 pub struct CheckRepositoryArgs {
-    /// Restrict to these contracts by name.
+    /// Restrict to these contracts by name — `--contract`.
     #[serde(default)]
     pub contracts: Vec<String>,
+    /// Restrict to these consumers by name — `--consumer`.
+    #[serde(default)]
+    pub consumers: Vec<String>,
+    /// Check only the contracts among these repository-relative paths, as the
+    /// commit hook does — `brake check <paths>`.
+    #[serde(default)]
+    pub paths: Vec<PathBuf>,
+    /// Check only what changed since the merge-base with this ref — `--since`.
+    #[serde(default)]
+    pub since: Option<String>,
+    /// Compare against this baseline instead of the configured one, in the
+    /// one-string form `--baseline` takes.
+    #[serde(default)]
+    pub baseline: Option<String>,
     #[serde(default)]
     pub compatibility: Option<String>,
 }
@@ -314,12 +337,25 @@ pub fn check_repository(context: &Context, args: CheckRepositoryArgs) -> ToolRes
     let config = load_config(&context.repo_root)?;
     let level = args.compatibility.as_deref().map(parse_level).transpose()?;
 
+    let scope = match (args.paths.is_empty(), args.since) {
+        (false, Some(_)) => {
+            return Err(ToolFailure::new(
+                "`paths` and `since` choose the scope two different ways; supply one",
+            ));
+        }
+        (false, None) => Scope::Paths(args.paths),
+        (true, Some(reference)) => Scope::Since(reference),
+        (true, None) => Scope::All,
+    };
+
     let mut options = context.check_options(level);
     options.only = args.contracts;
-    // This one really does cover everything it was asked about.
-    options.report_stale = true;
+    options.consumers = args.consumers;
+    options.baseline = args.baseline.as_deref().map(Baseline::from_flag);
+    // Only a run over everything can say a suppression matched nothing.
+    options.report_stale = scope == Scope::All;
 
-    let report = check::check(&context.repo_root, &config, &Scope::All, &options);
+    let report = check::check(&context.repo_root, &config, &scope, &options);
     Ok(render_report(
         &report,
         level.unwrap_or(config.defaults.compatibility),
@@ -506,20 +542,34 @@ const CENSUS_CAVEAT: &str = "brake knows about the consumers declared in brake.t
 const CHOICE_IS_NOT_BRAKES: &str = "which strategy fits depends on whether you control every consumer and whether you \
      have a version scheme; brake can see neither, and does not choose";
 
-fn evaluate_pair(
-    base: &crate::Contract,
-    head: &crate::Contract,
-    contract: &str,
-    level: Compatibility,
-) -> Vec<Finding> {
-    let changes = crate::compare(base, head);
-    let mut findings = crate::evaluate(&changes, contract, level);
-    // The structural checks `brake check` runs. Without them an agent was told
-    // a draft was clean that the commit hook then rejected.
-    findings.extend(crate::lint(base, head, contract, level));
-    findings.sort();
-    findings.dedup();
-    findings
+/// A check's report as a tool answer.
+///
+/// A document that did not parse, or a baseline that could not be found, is
+/// a broken gate to CI and an unanswerable question to an agent: §6 keeps
+/// "brake could not tell" apart from "the API broke", so they are tool errors
+/// here rather than findings.
+fn answer(report: &Report, level: Compatibility) -> ToolResult {
+    let unanswerable: Vec<&str> = report
+        .unavailable
+        .iter()
+        .map(|item| item.message.as_str())
+        .chain(
+            report
+                .findings
+                .iter()
+                .filter(|finding| {
+                    matches!(
+                        finding.rule_id,
+                        "contract-unreachable" | "baseline-unconfigured"
+                    )
+                })
+                .map(|finding| finding.message.as_str()),
+        )
+        .collect();
+    if !unanswerable.is_empty() {
+        return Err(ToolFailure::new(unanswerable.join("; ")));
+    }
+    Ok(render_report(report, level))
 }
 
 /// The response shape of `design/04-mcp-interface.md` §3.1.
@@ -576,40 +626,14 @@ fn render_report(report: &Report, level: Compatibility) -> Value {
     value
 }
 
+/// One finding: the object `--format json` emits, plus what an agent needs that
+/// CI does not — the rule's rationale and a suppression it could propose.
 fn finding_json(finding: &Finding) -> Value {
+    let mut value = crate::render::json::finding(finding);
     let rule = catalogue::lookup(finding.rule_id);
-    let remediation = finding.remediations();
-    let mut value = json!({
-        "rule": finding.rule_id,
-        "severity": severity_name(finding.severity),
-        "contract": finding.contract,
-        "method": finding.method,
-        "path": finding.path,
-        "pointer": finding.pointer,
-        "subject": finding.subject,
-        "message": finding.message,
-        "rationale": rule.map(|rule| rule.explanation),
-        "help_uri": rule.map(catalogue::Rule::help_uri),
-        "suggested_suppression": finding.suggest_suppression(None, None),
-        "remediation": remediation
-            .iter()
-            .map(|item| json!({
-                "strategy": item.strategy,
-                "summary": item.summary,
-                "cost": item.cost,
-            }))
-            .collect::<Vec<_>>(),
-        "affects": finding
-            .affects
-            .iter()
-            .map(|reference| json!({
-                "consumer": reference.consumer,
-                "source": reference.source,
-                "line": reference.span.line,
-            }))
-            .collect::<Vec<_>>(),
-    });
-    if !remediation.is_empty() {
+    value["rationale"] = json!(rule.map(|rule| rule.explanation));
+    value["suggested_suppression"] = json!(finding.suggest_suppression(None, None));
+    if !finding.remediations().is_empty() {
         value["choice_is_not_brakes"] = json!(CHOICE_IS_NOT_BRAKES);
     }
     value
@@ -698,58 +722,25 @@ fn select_contract<'a>(
 }
 
 fn parse_format(input: &str) -> Result<ContractFormat, ToolFailure> {
-    match input.trim().to_ascii_lowercase().as_str() {
-        "openapi" => Ok(ContractFormat::Openapi),
-        "proto" | "protobuf" => Ok(ContractFormat::Proto),
-        "graphql" => Ok(ContractFormat::Graphql),
-        "asyncapi" => Ok(ContractFormat::Asyncapi),
-        "mcp" => Ok(ContractFormat::Mcp),
-        other => Err(ToolFailure::new(format!(
-            "unknown format `{other}`; expected one of: openapi, proto, graphql, asyncapi, mcp"
-        ))),
-    }
+    ContractFormat::parse(input).map_err(ToolFailure::new)
 }
 
 fn parse_level(input: &str) -> Result<Compatibility, ToolFailure> {
-    match input.trim().to_ascii_lowercase().as_str() {
-        "wire" => Ok(Compatibility::Wire),
-        "wire-json" | "wirejson" => Ok(Compatibility::WireJson),
-        "surface" => Ok(Compatibility::Surface),
-        "strict" => Ok(Compatibility::Strict),
-        other => Err(ToolFailure::new(format!(
-            "unknown compatibility level `{other}`; expected one of: \
-             wire, wire-json, surface, strict"
-        ))),
-    }
+    Compatibility::parse(input).map_err(ToolFailure::new)
 }
 
 #[must_use]
 pub fn format_name(format: ContractFormat) -> &'static str {
-    match format {
-        ContractFormat::Openapi => "openapi",
-        ContractFormat::Proto => "proto",
-        ContractFormat::Graphql => "graphql",
-        ContractFormat::Asyncapi => "asyncapi",
-        ContractFormat::Mcp => "mcp",
-    }
+    format.name()
 }
 
 #[must_use]
 pub fn level_name(level: Compatibility) -> &'static str {
-    match level {
-        Compatibility::Wire => "wire",
-        Compatibility::WireJson => "wire-json",
-        Compatibility::Surface => "surface",
-        Compatibility::Strict => "strict",
-    }
+    level.name()
 }
 
 fn severity_name(severity: Severity) -> &'static str {
-    match severity {
-        Severity::Info => "info",
-        Severity::Warning => "warning",
-        Severity::Error => "error",
-    }
+    severity.name()
 }
 
 /// The verdict a `check_repository` result maps to, for a caller that wants
@@ -807,8 +798,9 @@ pub fn tool_schemas() -> BTreeMap<&'static str, Value> {
                     },
                     "baseline_document": {
                         "type": "string",
-                        "description": "An inline baseline. Supply this to check a \
-            change with no brake.toml and no repository.",
+                        "description": "An inline baseline. With no `contract`, the two \
+            documents are compared with no brake.toml and no repository. With a \
+            `contract`, it replaces that contract's configured baseline.",
                     },
                     "compatibility": compatibility.clone(),
                 },
@@ -850,6 +842,29 @@ pub fn tool_schemas() -> BTreeMap<&'static str, Value> {
                         "type": "array",
                         "items": { "type": "string" },
                         "description": "Restrict the run to these contracts by name.",
+                    },
+                    "consumers": {
+                        "type": "array",
+                        "items": { "type": "string" },
+                        "description": "Restrict consumer verification to these \
+            declared consumers by name.",
+                    },
+                    "paths": {
+                        "type": "array",
+                        "items": { "type": "string" },
+                        "description": "Check only the contracts among these \
+            repository-relative paths, as the commit hook does. Omit for every contract.",
+                    },
+                    "since": {
+                        "type": "string",
+                        "description": "Check only the contracts that changed since \
+            the merge-base with this ref, as a pull-request check does.",
+                    },
+                    "baseline": {
+                        "type": "string",
+                        "description": "Compare against this baseline instead of the \
+            configured one: a revision (`v1.2.0`), `merge-base:<ref>`, \
+            `latest-tag:<glob>`, or `<ref>:<path>`.",
                     },
                     "compatibility": compatibility,
                 },
@@ -1202,7 +1217,11 @@ paths:
             },
         )
         .expect_err("unparseable");
-        assert!(failure.message.contains("did not parse"), "{failure}");
+        // Names which of the two documents failed.
+        assert!(
+            failure.message.contains("failed to parse") && failure.message.contains("`head`"),
+            "{failure}"
+        );
     }
 
     #[test]

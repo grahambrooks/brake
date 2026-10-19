@@ -62,7 +62,7 @@ from, and it is the only directory the server will resolve a contract in.
 | `format` | yes | `openapi`, `proto`, `graphql`, `asyncapi` or `mcp` |
 | `proposed` | yes | The full proposed document, **as text** |
 | `contract` | no | Which `[[contract]]` to compare against. Required only when more than one is configured |
-| `baseline_document` | no | An inline baseline — supply it to check a change with no `brake.toml` and no repository |
+| `baseline_document` | no | An inline baseline. With no `contract`, the two documents are compared with no `brake.toml` and no repository. With a `contract`, it replaces that contract's configured baseline |
 | `compatibility` | no | `wire`, `wire-json`, `surface`, `strict`. Defaults to the configured level |
 
 `proposed` is text rather than a path so a draft that has not been written to
@@ -72,9 +72,13 @@ moment to reconsider a rename is before it exists.
 With more than one contract configured and no `contract` given, it refuses to
 guess rather than picking one.
 
-Like every tool here, it runs the
-[structural checks](configuration.md#structural-checks) the commit hook runs,
-and reports only the defects the draft adds.
+**It is the commit hook's check, run on the draft.** The draft stands in for
+the contract file, and the run is the one `brake check <that file>` makes. So
+the answer includes everything the hook applies: your `[[contract.allow]]`
+suppressions, the consumer rules for declared pacts and manifests, sibling
+documents a `$ref` reaches, and the
+[structural checks](configuration.md#structural-checks). An agent told a draft
+is clean will not then be stopped by the hook for something it was not shown.
 
 ### `compare_contracts`
 
@@ -89,7 +93,9 @@ and reports only the defects the draft adds.
 
 Needs **no configuration and no repository**, so it works on a repository the
 agent has never seen — reviewing a diff, or a document pasted into the
-conversation.
+conversation. Nothing outside the two documents is read: a `$ref` into a
+sibling file is reported as unverified. It is the same check as
+`brake compare` on the command line.
 
 ### `who_consumes`
 
@@ -121,10 +127,19 @@ while the edit can still be reconsidered. An empty answer means nobody
 
 | Argument | Required | Meaning |
 | --- | --- | --- |
-| `contracts` | no | Restrict the run to these contracts by name |
+| `contracts` | no | Restrict the run to these contracts by name (`--contract`) |
+| `consumers` | no | Restrict consumer verification to these declared consumers (`--consumer`) |
+| `paths` | no | Check only the contracts among these paths, as the commit hook does (`brake check <paths>`) |
+| `since` | no | Check only what changed since the merge-base with this ref (`--since`) |
+| `baseline` | no | Compare against this baseline instead of the configured one, in the form `--baseline` takes |
 | `compatibility` | no | Override the configured level |
 
-Answers "what is our compatibility posture?" rather than "is this change safe?".
+With no `paths` or `since` it checks everything, which answers "what is our
+compatibility posture?" rather than "is this change safe?". `paths` and
+`since` cannot be combined.
+
+[Capabilities](capabilities.md) lists every CLI flag next to the argument it
+maps to here, and says why the ones without a counterpart have none.
 
 ## Resources
 
@@ -150,11 +165,14 @@ want without that".
 
 ## What a finding carries
 
-Each finding in a tool result carries the rule id, the message, the rationale, a
-`help_uri` into the [rule catalogue](rules.md), the remediation strategies bound
-to the field they are about, the consumers it `affects`, and a
-`suggested_suppression` — a ready-made `[[contract.allow]]` block with the rule,
-endpoint and field already filled in.
+Each finding is the object `brake check --format json` emits — rule id,
+message, `file`, `line` and `column`, a `help_uri` into the
+[rule catalogue](rules.md), the remediation strategies bound to the field they
+are about, the consumers it `affects`, and the `note` a consumer policy left —
+plus two things for an agent: the rule's `rationale`, and a
+`suggested_suppression`, a ready-made `[[contract.allow]]` block with the rule,
+endpoint and field already filled in. So an agent can point at the line CI will
+annotate.
 
 The suppression is a *convenience, not a recommendation*. Its `reason` is a
 placeholder that has to be replaced with the real one, and adding it without

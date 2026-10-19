@@ -57,6 +57,98 @@ pub struct Options {
     /// Restrict to these consumer names — `--consumer`, which mirrors
     /// `--contract`. Empty means every declared consumer.
     pub consumers: Vec<String>,
+    /// Documents read from memory instead of the working tree, keyed by
+    /// repository-relative path.
+    ///
+    /// An agent's unsaved draft goes here, so the draft gets the whole check —
+    /// suppressions, consumer rules, cross-file `$ref`s — rather than whatever
+    /// subset an adapter could reassemble. Only the head side reads them: an
+    /// edit to the working tree must not change what "before" means. See
+    /// `design/09-one-core-three-surfaces.md`.
+    pub overrides: BTreeMap<PathBuf, Vec<u8>>,
+    /// A baseline supplied as a document rather than resolved from the
+    /// repository. It has no siblings brake can locate, so a cross-file `$ref`
+    /// in it is reported as unmodelled.
+    pub baseline_document: Option<Vec<u8>>,
+    /// Whether this caller may run a declared generator. `drift` asks for it;
+    /// this decides whether it is allowed, so the refusal lives here rather
+    /// than in every adapter that must remember not to ask.
+    pub trust: Trust,
+}
+
+/// Whether a run may spawn the one subprocess brake has, the `--drift`
+/// generator.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum Trust {
+    /// The caller is the person who owns the repository: the CLI, or a
+    /// library caller. `drift` is honoured.
+    #[default]
+    Trusted,
+    /// The inputs may be untrusted, as they are for an MCP tool call. A
+    /// declared generator is never run, whatever `drift` says.
+    Untrusted,
+}
+
+/// Read a head-side document: the override if there is one, else the file.
+fn read_head(repo_root: &Path, relative: &Path, options: &Options) -> std::io::Result<Vec<u8>> {
+    match override_for(&options.overrides, relative) {
+        Some(bytes) => Ok(bytes.clone()),
+        None => fs::read(repo_root.join(relative)),
+    }
+}
+
+fn override_for<'a>(
+    overrides: &'a BTreeMap<PathBuf, Vec<u8>>,
+    relative: &Path,
+) -> Option<&'a Vec<u8>> {
+    let wanted = lexical(relative);
+    overrides
+        .iter()
+        .find(|(path, _)| lexical(path) == wanted)
+        .map(|(_, bytes)| bytes)
+}
+
+/// A path reduced to `/`-separated normal components, without touching the
+/// filesystem: an overridden document need not exist on disk.
+fn lexical(path: &Path) -> String {
+    let mut parts: Vec<String> = Vec::new();
+    for component in path.components() {
+        match component {
+            Component::Normal(part) => parts.push(part.to_string_lossy().into_owned()),
+            Component::ParentDir => {
+                parts.pop();
+            }
+            _ => {}
+        }
+    }
+    parts.join("/")
+}
+
+/// The head side's resolver: the working tree, with the overrides on top.
+fn head_resolver(repo_root: &Path, document_dir: &str, options: &Options) -> OverlayResolver {
+    OverlayResolver {
+        disk: contract::FileSystemResolver::new(repo_root.join(document_dir)),
+        document_dir: PathBuf::from(document_dir),
+        overrides: options.overrides.clone(),
+    }
+}
+
+/// Sibling documents for a head contract, from the overrides first.
+///
+/// So a draft of a shared schema is read along with the draft that `$ref`s
+/// it, and an untouched sibling still comes from disk.
+struct OverlayResolver {
+    disk: contract::FileSystemResolver,
+    document_dir: PathBuf,
+    overrides: BTreeMap<PathBuf, Vec<u8>>,
+}
+
+impl contract::DocumentResolver for OverlayResolver {
+    fn resolve(&self, relative_path: &str) -> Option<Vec<u8>> {
+        override_for(&self.overrides, &self.document_dir.join(relative_path))
+            .cloned()
+            .or_else(|| self.disk.resolve(relative_path))
+    }
 }
 
 /// Run a check over the given scope.
@@ -160,11 +252,10 @@ fn demand_pass(
             continue;
         }
         let source = display_path(&contract.source);
-        let Ok(bytes) = fs::read(repo_root.join(&contract.source)) else {
+        let Ok(bytes) = read_head(repo_root, &contract.source, options) else {
             continue;
         };
-        let resolver =
-            contract::FileSystemResolver::new(repo_root.join(parent_dir(&contract.source)));
+        let resolver = head_resolver(repo_root, &parent_dir(&contract.source), options);
         let Ok(head) = ingest(contract.format, &source, &bytes, &resolver) else {
             // `contract-unreachable` is already on the report from the
             // baseline pass; reporting it twice would read as two problems.
@@ -228,8 +319,7 @@ pub fn check_contract(
     let mut report = Report::new(Vec::new(), Vec::new(), 1);
 
     let head_relative = display_path(&contract.source);
-    let head_path = repo_root.join(&contract.source);
-    let head_bytes = match fs::read(&head_path) {
+    let head_bytes = match read_head(repo_root, &contract.source, options) {
         Ok(bytes) => bytes,
         Err(error) => {
             report.findings.push(rules::contract_unreachable(
@@ -246,12 +336,20 @@ pub fn check_contract(
         .unwrap_or_else(|| contract.effective_compatibility(defaults));
 
     let baseline_override = options.baseline.clone();
-    let resolved = match baseline::resolve_for_contract(
-        repo_root,
-        defaults,
-        contract,
-        baseline_override.as_ref(),
-    ) {
+    let resolution = match &options.baseline_document {
+        Some(bytes) => Ok(baseline::ResolvedBaseline {
+            label: "baseline".to_owned(),
+            bytes: bytes.clone(),
+            origin: baseline::BaselineOrigin::Isolated,
+        }),
+        None => baseline::resolve_for_contract(
+            repo_root,
+            defaults,
+            contract,
+            baseline_override.as_ref(),
+        ),
+    };
+    let resolved = match resolution {
         Ok(resolved) => resolved,
         // An *unconfigured* baseline is a user who has not opted in; an
         // *unresolvable* one is a broken gate. Conflating them is how a gate
@@ -305,7 +403,7 @@ pub fn check_contract(
     // `$ref` was missing from base and head alike and the run reported clean.
     let document_dir = parent_dir(&contract.source);
     let base_resolver = resolved.origin.resolver(repo_root, &document_dir);
-    let head_resolver = contract::FileSystemResolver::new(repo_root.join(&document_dir));
+    let head_resolver = head_resolver(repo_root, &document_dir, options);
     let base_contract = match ingest(
         contract.format,
         &resolved.label,
@@ -339,35 +437,12 @@ pub fn check_contract(
         report.sources.insert(head_relative.clone(), text);
     }
 
-    let mut changes = compare::compare_contracts(&base_contract, &head_contract);
-    // An unmodelled construct on an endpoint that is byte-identical on both
-    // sides is still an unverified path, and must not read as clean.
-    changes.extend(compare::partial_changes(&head_contract));
-    changes.sort();
-    changes.dedup();
+    report.findings = evaluate_pair(&base_contract, &head_contract, contract, level, options);
 
-    let mut findings = rules::evaluate(&changes, &contract.name, level);
-    // Structural lint reads the head contract on its own, but reports only the
-    // defects the baseline does not already have. See
-    // design/07-structural-lint.md.
-    findings.extend(rules::lint::introduced(
-        &base_contract,
-        &head_contract,
-        &contract.name,
-        level,
-    ));
-    findings.sort();
-    findings.dedup();
-
-    report.findings = rules::apply_suppressions(
-        findings,
-        &contract.name,
-        &contract.allow,
-        options.as_of.as_deref(),
-        options.report_stale,
-    );
-
+    // Asked for, and allowed. An untrusted caller never reaches the one
+    // subprocess brake has, however it sets `drift`.
     if options.drift
+        && options.trust == Trust::Trusted
         && let Some(generated) = &contract.generated
     {
         match run_drift(repo_root, contract, &head_bytes, &generated.command) {
@@ -386,6 +461,112 @@ pub fn check_contract(
     report
 }
 
+/// Every rule over one base and head pair, with the contract's suppressions.
+///
+/// The one place a pair becomes findings. `check_contract` reaches it from
+/// the repository and `check_documents` from two documents in memory, so the
+/// two cannot disagree about which rules run.
+fn evaluate_pair(
+    base: &Contract,
+    head: &Contract,
+    contract: &ContractConfig,
+    level: crate::config::Compatibility,
+    options: &Options,
+) -> Vec<Finding> {
+    let mut changes = compare::compare_contracts(base, head);
+    // An unmodelled construct on an endpoint that is byte-identical on both
+    // sides is still an unverified path, and must not read as clean.
+    changes.extend(compare::partial_changes(head));
+    changes.sort();
+    changes.dedup();
+
+    let mut findings = rules::evaluate(&changes, &contract.name, level);
+    // Structural lint reads the head contract on its own, but reports only the
+    // defects the baseline does not already have. See
+    // design/07-structural-lint.md.
+    findings.extend(rules::lint::introduced(base, head, &contract.name, level));
+    findings.sort();
+    findings.dedup();
+
+    rules::apply_suppressions(
+        findings,
+        &contract.name,
+        &contract.allow,
+        options.as_of.as_deref(),
+        options.report_stale,
+    )
+}
+
+/// One document supplied from memory, and how findings should name it.
+///
+/// The label is what a span's `file` says, so a CI annotation points at the
+/// file the caller meant: a path for `brake compare`, a role for an MCP tool
+/// that was handed text.
+#[derive(Debug, Clone, Copy)]
+pub struct Document<'a> {
+    pub label: &'a str,
+    pub bytes: &'a [u8],
+}
+
+/// Check two documents, with no configuration and no repository.
+///
+/// MCP `compare_contracts` and `brake compare`. Both documents are parsed with
+/// no resolver, so a `$ref` into a sibling file is reported as unmodelled
+/// rather than read from whatever directory the caller happens to be in: the
+/// caller supplied two documents, not a tree.
+///
+/// A document that does not parse is reported as `contract-unreachable`, as
+/// it is for a configured contract.
+#[must_use]
+pub fn check_documents(
+    format: ContractFormat,
+    base: Document<'_>,
+    head: Document<'_>,
+    level: crate::config::Compatibility,
+) -> Report {
+    const NAME: &str = "inline";
+    let mut report = Report::new(Vec::new(), Vec::new(), 1);
+    let none = contract::SingleDocumentResolver;
+    let parsed = ingest(format, base.label, base.bytes, &none).and_then(|base_contract| {
+        ingest(format, head.label, head.bytes, &none)
+            .map(|head_contract| (base_contract, head_contract))
+    });
+    match parsed {
+        Ok((base_contract, head_contract)) => {
+            // So the text renderer can quote the offending line, as it does
+            // for a file.
+            for document in [base, head] {
+                if let Ok(text) = std::str::from_utf8(document.bytes) {
+                    report
+                        .sources
+                        .insert(document.label.to_owned(), text.to_owned());
+                }
+            }
+            let contract = ContractConfig {
+                name: NAME.to_owned(),
+                format,
+                source: PathBuf::from(head.label),
+                compatibility: Some(level),
+                baseline: None,
+                allow: Vec::new(),
+                generated: None,
+            };
+            report.findings = evaluate_pair(
+                &base_contract,
+                &head_contract,
+                &contract,
+                level,
+                &Options::default(),
+            );
+        }
+        Err(error) => report
+            .findings
+            .push(rules::contract_unreachable(NAME, &error, None)),
+    }
+    report.finalise();
+    report
+}
+
 /// Structural lint for a contract that is new in this change.
 ///
 /// Lint needs no baseline, and a contract absent from the baseline introduces
@@ -399,7 +580,7 @@ fn lint_without_baseline(
     level: crate::config::Compatibility,
     options: &Options,
 ) -> Vec<Finding> {
-    let resolver = contract::FileSystemResolver::new(repo_root.join(parent_dir(&contract.source)));
+    let resolver = head_resolver(repo_root, &parent_dir(&contract.source), options);
     match ingest(contract.format, head_relative, head_bytes, &resolver) {
         Ok(head) => rules::apply_suppressions(
             rules::lint::lint(&head, &contract.name, level),
@@ -1464,6 +1645,108 @@ components:
             2,
             "a generator that did not run tells us nothing about drift: {report:?}"
         );
+    }
+
+    #[test]
+    fn an_untrusted_caller_never_reaches_the_drift_subprocess() {
+        let marker = tempdir().expect("tempdir");
+        let witness = marker.path().join("the-generator-ran");
+        let repo = repo_with(&[
+            ("api/openapi.baseline.yaml", SPEC),
+            ("api/openapi.yaml", SPEC),
+        ]);
+        let mut contract = contract_at("payments", "api/openapi.yaml", "api/openapi.baseline.yaml");
+        contract.generated = Some(crate::config::GeneratedConfig {
+            command: create_file_command(&witness),
+        });
+        let config = config_of(vec![contract]);
+
+        // `drift` asked for, and refused: the refusal is the core's, not the
+        // caller's to remember.
+        let options = Options {
+            drift: true,
+            trust: Trust::Untrusted,
+            ..Options::default()
+        };
+        check(repo.path(), &config, &Scope::All, &options);
+        assert!(!witness.exists(), "an untrusted run spawned the generator");
+
+        // The same request, trusted, does run it — so the guard above is
+        // refusing, not failing to launch.
+        let options = Options {
+            drift: true,
+            ..Options::default()
+        };
+        check(repo.path(), &config, &Scope::All, &options);
+        assert!(
+            witness.exists(),
+            "a trusted --drift run did not spawn the generator"
+        );
+    }
+
+    #[test]
+    fn an_override_replaces_the_head_and_never_the_baseline() {
+        let repo = repo_with(&[
+            ("api/openapi.baseline.yaml", SPEC),
+            ("api/openapi.yaml", SPEC),
+        ]);
+        let config = config_of(vec![contract_at(
+            "payments",
+            "api/openapi.yaml",
+            "api/openapi.baseline.yaml",
+        )]);
+        let broken = SPEC.replace("/payments/{id}", "/refunds/{id}");
+        assert_ne!(broken, SPEC, "the fixture must contain the path this moves");
+
+        // The head, from memory: the disk copy is unchanged and clean.
+        let mut options = Options::default();
+        options.overrides.insert(
+            PathBuf::from("api/openapi.yaml"),
+            broken.clone().into_bytes(),
+        );
+        let report = check(repo.path(), &config, &Scope::All, &options);
+        assert_eq!(report.exit_code(Severity::Error), 1, "{report:?}");
+
+        // Overriding the baseline's *file* changes nothing: a baseline is
+        // resolved from where it was declared, never from the overrides.
+        let mut options = Options::default();
+        options.overrides.insert(
+            PathBuf::from("api/openapi.baseline.yaml"),
+            broken.into_bytes(),
+        );
+        let report = check(repo.path(), &config, &Scope::All, &options);
+        assert_eq!(report.exit_code(Severity::Error), 0, "{report:?}");
+    }
+
+    #[test]
+    fn check_documents_is_hermetic_and_reports_what_it_cannot_read() {
+        let base = SPEC;
+        let head = SPEC.replace("/payments/{id}", "/refunds/{id}");
+        assert_ne!(head, SPEC);
+        let document = |label, bytes| Document { label, bytes };
+        let report = check_documents(
+            ContractFormat::Openapi,
+            document("old.yaml", base.as_bytes()),
+            document("new.yaml", head.as_bytes()),
+            crate::config::Compatibility::WireJson,
+        );
+        assert_eq!(report.exit_code(Severity::Error), 1, "{report:?}");
+        assert!(
+            report
+                .findings
+                .iter()
+                .filter_map(|finding| finding.span.as_ref())
+                .all(|span| span.file == "old.yaml" || span.file == "new.yaml"),
+            "spans must name the files the caller supplied: {report:?}"
+        );
+
+        let report = check_documents(
+            ContractFormat::Openapi,
+            document("old.yaml", base.as_bytes()),
+            document("new.yaml", b"this: is: not: openapi"),
+            crate::config::Compatibility::WireJson,
+        );
+        assert_eq!(report.findings[0].rule_id, "contract-unreachable");
     }
 
     #[test]

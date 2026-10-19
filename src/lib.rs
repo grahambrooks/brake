@@ -41,6 +41,7 @@ pub mod mcp;
 pub mod render;
 pub mod report;
 pub mod rules;
+pub mod surface;
 
 pub use crate::check::{Options, Scope};
 pub use crate::compare::Change;
@@ -147,6 +148,33 @@ pub enum Severity {
     Warning,
     /// A change that breaks a consumer.
     Error,
+}
+
+impl Severity {
+    /// Parse the spelling every surface accepts: `--severity`, `--fail-on`.
+    ///
+    /// # Errors
+    ///
+    /// Names the accepted spellings when `input` is none of them.
+    pub fn parse(input: &str) -> Result<Self, String> {
+        match input.trim().to_ascii_lowercase().as_str() {
+            "info" => Ok(Self::Info),
+            "warning" | "warn" => Ok(Self::Warning),
+            "error" | "err" => Ok(Self::Error),
+            other => Err(format!(
+                "unknown severity `{other}`; expected one of: info, warning, error"
+            )),
+        }
+    }
+
+    #[must_use]
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Info => "info",
+            Self::Warning => "warning",
+            Self::Error => "error",
+        }
+    }
 }
 
 /// The process exit code contract, which is the CI contract.

@@ -21,6 +21,7 @@ list of things deliberately not being built.
 | [06-architectural-evolution.md](06-architectural-evolution.md) | Architectural evolution: schema evolution depth, event contracts, hermetic multi-document bundling, subtyping lattice, CI integration |
 | [07-structural-lint.md](07-structural-lint.md) | Structural lint rules: why four consumer-breaking contract defects belong in brake despite the "not a spec linter" ruling |
 | [08-mcp-tool-contracts.md](08-mcp-tool-contracts.md) | MCP tool lists as a fifth format: a committed `tools/list` snapshot, mapped onto the existing model, and who it actually protects |
+| [09-one-core-three-surfaces.md](09-one-core-three-surfaces.md) | The library owns every operation; the CLI and MCP server are adapters over one `check`, with a capability table that keeps them in step |
 
 ## Status
 
@@ -42,6 +43,10 @@ a new contract in full, and run on every CLI and MCP path.
 
 The MCP tool-list ingester in [08-mcp-tool-contracts.md](08-mcp-tool-contracts.md)
 is built, and adds no rules.
+
+[09-one-core-three-surfaces.md](09-one-core-three-surfaces.md) is built: both
+adapters go through `check::check` or `check::check_documents`, and
+`tests/surface_parity.rs` holds them to the capability table.
 
 [06-architectural-evolution.md](06-architectural-evolution.md) is a **roadmap**,
 and only partly built. Landed from it: the AsyncAPI ingester, hermetic

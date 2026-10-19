@@ -59,6 +59,7 @@ eval-tests:
 .PHONY: docs
 docs:
 	BRAKE_BLESS=1 cargo test --all-features --test docs_match_the_catalogue
+	BRAKE_BLESS=1 cargo test --all-features --test surface_parity the_committed_capabilities_document
 
 # AGENTS.md and .junie/skills/ are copies. Claude Code reads CLAUDE.md and
 # .claude/skills/, other agents read AGENTS.md, Junie reads .junie/skills/ —

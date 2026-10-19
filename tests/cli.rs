@@ -1274,3 +1274,49 @@ paths:
             .contains("tuple prefixItems")
     );
 }
+
+// ── brake compare ───────────────────────────────────────────────────────────
+
+#[test]
+fn compare_needs_no_configuration_and_names_the_files_it_was_given() {
+    // No brake.toml anywhere: the two files are the whole input.
+    let dir = repo(&[("old.yaml", SPEC), ("new.yaml", BROKEN)]);
+
+    let broken = brake(
+        dir.path(),
+        &["compare", "-f", "json", "old.yaml", "new.yaml"],
+    );
+    assert_eq!(code(&broken), 1, "{}", stdout(&broken));
+    let report: serde_json::Value = serde_json::from_str(&stdout(&broken)).expect("json");
+    let files: Vec<&str> = report["findings"]
+        .as_array()
+        .expect("findings")
+        .iter()
+        .filter_map(|finding| finding["file"].as_str())
+        .collect();
+    assert!(!files.is_empty(), "{report}");
+    assert!(
+        files
+            .iter()
+            .all(|file| *file == "old.yaml" || *file == "new.yaml"),
+        "a CI annotation must point at a file the caller named: {files:?}"
+    );
+
+    let clean = brake(
+        dir.path(),
+        &["compare", "-f", "json", "old.yaml", "old.yaml"],
+    );
+    assert_eq!(code(&clean), 0, "{}", stdout(&clean));
+}
+
+#[test]
+fn compare_refuses_a_head_it_cannot_identify() {
+    let dir = repo(&[("old.yaml", SPEC), ("notes.txt", "not a contract\n")]);
+
+    let output = brake(dir.path(), &["compare", "old.yaml", "notes.txt"]);
+    assert_eq!(code(&output), 2);
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("--contract-format"),
+        "the error must say how to proceed"
+    );
+}

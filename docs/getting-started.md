@@ -142,12 +142,15 @@ The `1` / `2` split is the one that matters. Conflating "your API broke" with
 ```sh
 brake analyze .                       # every contract, every rule, for CI
 brake diff                            # describe the change, never fail
+brake compare old.yaml new.yaml       # two files, no brake.toml needed
 brake consumers                       # who uses what, and what of it
 brake explain response-field-removed  # why a rule exists
 brake mcp .                           # serve the ruleset to a coding agent
 ```
 
-`diff` and `consumers` always exit `0`. They are for pull-request descriptions,
+`compare` gates like `check`, with the same exit codes, but over two files you
+name: it needs no `brake.toml`, detects the format by parsing, and reads
+nothing else. `diff` and `consumers` always exit `0`. They are for pull-request descriptions,
 changelog drafting and inventory — not for gating.
 
 ## Output formats

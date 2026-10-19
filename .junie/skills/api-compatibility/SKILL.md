@@ -125,6 +125,9 @@ anything about the change.
   human assertion — treat undeclared consumers as possible.
 - **`unavailable` is not clean.** A construct `brake` cannot model is named
   rather than ignored. Report it; do not round it down to a pass.
+- **`check_change` is the commit hook's check, run on your draft.** It applies
+  the repository's suppressions, consumer rules and sibling `$ref`s, so a
+  clean answer means the hook will agree.
 - **Four structural checks look at the draft on its own**
   (`enum-type-mismatch`, `enum-duplicate-value`, `operation-id-duplicate`,
   `path-param-undeclared`). They report only what the draft adds, so an old

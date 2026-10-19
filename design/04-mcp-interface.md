@@ -83,6 +83,11 @@ same findings the CLI would.
 
 The core tool, and the one that makes this worth building.
 
+> How it is built changed in [09-one-core-three-surfaces.md](09-one-core-three-surfaces.md):
+> the draft is an override on `check::check`, so it gets every rule,
+> suppression and consumer check the commit hook applies. The tool's arguments
+> and response shape below are unchanged.
+
 ```jsonc
 {
   "name": "check_change",

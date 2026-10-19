@@ -7,56 +7,60 @@
 use serde_json::json;
 
 use crate::report::Report;
-use crate::rules::catalogue;
+use crate::rules::{Finding, catalogue};
+
+/// One finding, as every machine-readable surface shows it.
+///
+/// `--format json` emits this, and every MCP tool starts from it. A field
+/// added here reaches both, which is the point: CI and an agent read the same
+/// finding. See `design/09-one-core-three-surfaces.md`.
+#[must_use]
+pub fn finding(finding: &Finding) -> serde_json::Value {
+    let span = finding.span.as_ref();
+    json!({
+        "rule": finding.rule_id,
+        "severity": severity_label(finding.severity),
+        "contract": finding.contract,
+        "method": finding.method,
+        "path": finding.path,
+        "pointer": finding.pointer,
+        "file": span.map(|span| span.file.clone()),
+        "line": span.map(|span| span.line),
+        "column": span.map(|span| span.column),
+        "message": finding.message,
+        "subject": finding.subject,
+        // Ways to make the same change without breaking a consumer,
+        // most direct first. Structured rather than prose so a
+        // consumer can act on one without parsing English.
+        "remediation": finding
+            .remediations()
+            .into_iter()
+            .map(|remediation| json!({
+                "strategy": remediation.strategy,
+                "summary": remediation.summary,
+                "cost": remediation.cost,
+            }))
+            .collect::<Vec<_>>(),
+        "help_uri": catalogue::lookup(finding.rule_id).map(catalogue::Rule::help_uri),
+        // Declared consumers this finding is evidence against, with
+        // the interaction that says so. Empty when no consumer is
+        // declared *and* when none is affected: `note` is what tells
+        // the two apart.
+        "affects": finding
+            .affects
+            .iter()
+            .map(|reference| json!({
+                "consumer": reference.consumer,
+                "source": reference.source,
+                "line": reference.span.line,
+            }))
+            .collect::<Vec<_>>(),
+        "note": finding.note,
+    })
+}
 
 pub fn render(report: &Report) -> String {
-    let findings = report
-        .findings
-        .iter()
-        .map(|finding| {
-            let span = finding.span.as_ref();
-            json!({
-                "rule": finding.rule_id,
-                "severity": severity_label(finding.severity),
-                "contract": finding.contract,
-                "method": finding.method,
-                "path": finding.path,
-                "pointer": finding.pointer,
-                "file": span.map(|span| span.file.clone()),
-                "line": span.map(|span| span.line),
-                "column": span.map(|span| span.column),
-                "message": finding.message,
-                "subject": finding.subject,
-                // Ways to make the same change without breaking a consumer,
-                // most direct first. Structured rather than prose so a
-                // consumer can act on one without parsing English.
-                "remediation": finding
-                    .remediations()
-                    .into_iter()
-                    .map(|remediation| json!({
-                        "strategy": remediation.strategy,
-                        "summary": remediation.summary,
-                        "cost": remediation.cost,
-                    }))
-                    .collect::<Vec<_>>(),
-                "help_uri": catalogue::lookup(finding.rule_id).map(catalogue::Rule::help_uri),
-                // Declared consumers this finding is evidence against, with
-                // the interaction that says so. Empty when no consumer is
-                // declared *and* when none is affected: `note` is what tells
-                // the two apart.
-                "affects": finding
-                    .affects
-                    .iter()
-                    .map(|reference| json!({
-                        "consumer": reference.consumer,
-                        "source": reference.source,
-                        "line": reference.span.line,
-                    }))
-                    .collect::<Vec<_>>(),
-                "note": finding.note,
-            })
-        })
-        .collect::<Vec<_>>();
+    let findings = report.findings.iter().map(finding).collect::<Vec<_>>();
 
     let unavailable = report
         .unavailable

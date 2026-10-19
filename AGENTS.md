@@ -34,9 +34,9 @@ Four structural lint rules
 ([design/07-structural-lint.md](design/07-structural-lint.md)) check the head
 contract with no baseline. They live in `src/rules/lint.rs`.
 `lint::introduced` reports only defects the baseline lacks, the same ratchet
-as every comparison rule. `check::check_contract` and the MCP tools both call
-it, and the library exposes it as `brake::lint`, so the hook, the agent and
-forge cannot disagree. A `contract-new` contract is linted in full; a
+as every comparison rule. Every surface reaches it through `check`, and the
+library also exposes it as `brake::lint`, so the hook, the agent and forge
+cannot disagree. A `contract-new` contract is linted in full; a
 `baseline-unconfigured` one is not linted, because it has not opted in.
 
 A contract may span several files: a cross-file `$ref` is resolved through a
@@ -75,8 +75,12 @@ What is worth knowing before changing anything:
   adapter and the only file that knows about async. Keep the split: it is what
   makes the tools testable without a protocol.
 - **Nothing in `src/mcp/` may reach the `--drift` subprocess path.**
-  `design/04-mcp-interface.md` §5.1 is the reasoning, and
-  `tests/mcp.rs::no_tool_call_can_execute_a_declared_generator` is the guard.
+  `design/04-mcp-interface.md` §5.1 is the reasoning. The core enforces it:
+  the server asks for `Trust::Untrusted`, and `check` never spawns the
+  generator for an untrusted caller whatever `drift` says.
+  `tests/mcp.rs::no_tool_call_can_execute_a_declared_generator` and
+  `check::tests::an_untrusted_caller_never_reaches_the_drift_subprocess` are
+  the guards.
 - **`src/demand/` never fetches anything, under any flag.** A URL in a pact —
   `_links`, `pb:publish`, a `$ref` in an example body — is data. A consumer
   `source` that is a URL is refused when `brake.toml` is parsed. `brake` reads
@@ -171,7 +175,8 @@ src/compare/       Contract × Contract → Change. Format-agnostic
 src/rules/         Change × Level → Finding. The rule catalogue
 src/demand/        Consumer declarations → Demand → the join → attribution
 src/baseline.rs    file / git / git-merge-base, via gix; and the baseline's resolver
-src/render/        text, json, sarif, github, gitlab
+src/render/        text, json, sarif, github, gitlab; render::json::finding is shared with MCP
+src/surface.rs     The capability table: every CLI flag and MCP argument, and why a gap exists
 docs/              The prose guides; docs/rules.md alone is generated
 docs/assets/       The logo — hand-authored SVG, no font and no raster asset
 .claude/skills/    Four agent skills — see docs/agent-skills.md
@@ -179,11 +184,22 @@ AGENTS.md          Generated from CLAUDE.md by `make agents`
 .junie/skills/     Generated from .claude/skills/ by `make agents`
 ```
 
-**Two structural rules:**
+**Three structural rules:**
 
 - `main.rs` may parse arguments, render output, and exit. It may **not** decide
   whether something is a breaking change. If a behaviour cannot be tested
   through the library, it is in the wrong file.
+- **The CLI and the MCP server are adapters over `check::check` and
+  `check::check_documents`**
+  ([design/09-one-core-three-surfaces.md](design/09-one-core-three-surfaces.md)).
+  Neither calls `compare`, `evaluate`, `lint`, the consumer policies or
+  `apply_suppressions` itself; `tests/surface_parity.rs` fails if one does. A
+  new option goes on `check::Options`, which both adapters fill. A draft is an
+  entry in `Options::overrides`, never a separate code path.
+- **Every CLI flag and MCP argument is in `src/surface.rs`.** Adding one to
+  either surface fails `tests/surface_parity.rs` until the table says what it
+  maps to on the other side, or why it has none. `make docs` regenerates
+  `docs/capabilities.md` from it.
 - `compare/` is format-agnostic. If a `match` on format appears there, the
   ingest normalisation is under-specified — fix it in `contract/`, not with a
   special case.

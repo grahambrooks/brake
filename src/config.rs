@@ -80,6 +80,37 @@ pub enum Compatibility {
     Strict,
 }
 
+impl Compatibility {
+    /// Parse a level as every surface spells it — `brake.toml`, `--compatibility`
+    /// and the MCP `compatibility` argument.
+    ///
+    /// # Errors
+    ///
+    /// Names the accepted levels when `input` is none of them.
+    pub fn parse(input: &str) -> Result<Self, String> {
+        match input.trim().to_ascii_lowercase().as_str() {
+            "wire" => Ok(Self::Wire),
+            "wire-json" | "wirejson" => Ok(Self::WireJson),
+            "surface" => Ok(Self::Surface),
+            "strict" => Ok(Self::Strict),
+            other => Err(format!(
+                "unknown compatibility level `{other}`; expected one of: \
+                 wire, wire-json, surface, strict"
+            )),
+        }
+    }
+
+    #[must_use]
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Wire => "wire",
+            Self::WireJson => "wire-json",
+            Self::Surface => "surface",
+            Self::Strict => "strict",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ContractFormat {
@@ -89,6 +120,37 @@ pub enum ContractFormat {
     Asyncapi,
     /// A snapshot of an MCP server's `tools/list` result.
     Mcp,
+}
+
+impl ContractFormat {
+    /// Parse a format name as `brake.toml` and the MCP `format` argument spell it.
+    ///
+    /// # Errors
+    ///
+    /// Names the accepted formats when `input` is none of them.
+    pub fn parse(input: &str) -> Result<Self, String> {
+        match input.trim().to_ascii_lowercase().as_str() {
+            "openapi" => Ok(Self::Openapi),
+            "proto" | "protobuf" => Ok(Self::Proto),
+            "graphql" => Ok(Self::Graphql),
+            "asyncapi" => Ok(Self::Asyncapi),
+            "mcp" => Ok(Self::Mcp),
+            other => Err(format!(
+                "unknown format `{other}`; expected one of: openapi, proto, graphql, asyncapi, mcp"
+            )),
+        }
+    }
+
+    #[must_use]
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Openapi => "openapi",
+            Self::Proto => "proto",
+            Self::Graphql => "graphql",
+            Self::Asyncapi => "asyncapi",
+            Self::Mcp => "mcp",
+        }
+    }
 }
 
 /// A consumer declaration format — `design/05-consumer-demand.md` §2.
@@ -177,6 +239,38 @@ pub enum Baseline {
 }
 
 impl Baseline {
+    /// Parse the one-string form `--baseline` and the MCP `baseline` argument
+    /// take.
+    ///
+    /// It accepts the same ideas as `brake.toml` in one string: a bare
+    /// revision is the common case, `latest-tag:` names the glob form,
+    /// `merge-base:` the trunk form, and anything else containing a `:` is the
+    /// explicit `ref:path` shape.
+    #[must_use]
+    pub fn from_flag(input: &str) -> Self {
+        let input = input.trim();
+        if let Some(pattern) = input.strip_prefix("latest-tag:") {
+            return Self::LatestTag {
+                pattern: pattern.to_owned(),
+            };
+        }
+        if let Some(reference) = input.strip_prefix("merge-base:") {
+            return Self::GitMergeBase {
+                reference: reference.to_owned(),
+            };
+        }
+        // `ref:path` is distinguishable because a path needs a separator; a
+        // bare revision never contains one.
+        if input.contains(':') {
+            return Self::Git {
+                spec: input.to_owned(),
+            };
+        }
+        Self::Rev {
+            rev: input.to_owned(),
+        }
+    }
+
     pub fn strategy_name(&self) -> &'static str {
         match self {
             Self::File(_) => "file",

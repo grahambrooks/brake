@@ -778,3 +778,130 @@ fn the_consumers_resource_is_the_inventory_and_says_what_it_is_not() {
         "{value}"
     );
 }
+
+// ── one core: an agent's draft gets the check the commit hook runs ──────────
+//
+// design/09-one-core-three-surfaces.md. `check_change` used to rebuild a subset
+// of `brake check` from primitives; each test here is one thing that subset
+// left out, and would fail against it.
+
+fn rules_in(result: &Value) -> Vec<String> {
+    result["structuredContent"]["findings"]
+        .as_array()
+        .map(|findings| {
+            findings
+                .iter()
+                .filter_map(|finding| finding["rule"].as_str().map(ToOwned::to_owned))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+#[test]
+fn check_change_honours_the_suppressions_the_hook_honours() {
+    let repo = repo(&[
+        (
+            "brake.toml",
+            "[[contract]]\nname=\"payments\"\nformat=\"openapi\"\nsource=\"api/c.yaml\"\n\
+             baseline={file=\"api/c.baseline.yaml\"}\n\
+             [[contract.allow]]\nrule=\"response-field-removed\"\n\
+             reason=\"web-checkout stopped reading it in PAY-4417\"\n",
+        ),
+        ("api/c.baseline.yaml", BASE),
+        ("api/c.yaml", BASE),
+    ]);
+    let mut client = Client::start(repo.path());
+
+    let result = client.call_tool(
+        "check_change",
+        json!({ "format": "openapi", "proposed": HEAD_BREAKS }),
+    );
+    assert_eq!(result["isError"], false, "{result}");
+    assert!(
+        !rules_in(&result).contains(&"response-field-removed".to_owned()),
+        "a suppressed break was reported to the agent: {result}"
+    );
+}
+
+#[test]
+fn check_change_runs_the_consumer_rules_not_just_attribution() {
+    let repo = with_a_consumer();
+    let mut client = Client::start(repo.path());
+
+    let result = client.call_tool(
+        "check_change",
+        json!({ "format": "openapi", "proposed": HEAD_BREAKS }),
+    );
+    let rules = rules_in(&result);
+    assert!(
+        rules.iter().any(|rule| rule.starts_with("consumer-")),
+        "web-checkout reads `customer_id`, so removing it must fail its declaration: {rules:?}"
+    );
+}
+
+#[test]
+fn check_change_resolves_a_drafts_sibling_document() {
+    let split = "openapi: 3.1.0\npaths:\n  /payments/{id}:\n    get:\n      operationId: getPayment\n      \
+                 responses:\n        \"200\":\n          description: ok\n          content:\n            \
+                 application/json:\n              schema:\n                $ref: \"./models.yaml#/Payment\"\n";
+    let models = "Payment:\n  type: object\n  properties:\n    id: { type: string }\n";
+    let repo = repo(&[
+        (
+            "brake.toml",
+            "[[contract]]\nname=\"payments\"\nformat=\"openapi\"\nsource=\"api/c.yaml\"\n\
+             baseline={file=\"api/c.baseline.yaml\"}\n",
+        ),
+        ("api/c.baseline.yaml", split),
+        ("api/c.yaml", split),
+        ("api/models.yaml", models),
+    ]);
+    let mut client = Client::start(repo.path());
+
+    let result = client.call_tool(
+        "check_change",
+        json!({ "format": "openapi", "proposed": split }),
+    );
+    assert_eq!(
+        result["structuredContent"]["verdict"], "clean",
+        "the sibling is in the tree, so the draft is fully verifiable: {result}"
+    );
+}
+
+#[test]
+fn an_agent_sees_the_file_and_line_ci_annotates() {
+    let repo = configured();
+    let mut client = Client::start(repo.path());
+
+    let result = client.call_tool(
+        "check_change",
+        json!({ "format": "openapi", "proposed": HEAD_BREAKS }),
+    );
+    let finding = &result["structuredContent"]["findings"][0];
+    assert!(finding["file"].is_string(), "{finding}");
+    assert!(finding["line"].is_u64(), "{finding}");
+}
+
+#[test]
+fn check_repository_takes_the_scopes_the_cli_takes() {
+    let repo = configured();
+    fs::write(repo.path().join("api/c.yaml"), HEAD_BREAKS).expect("write");
+    let mut client = Client::start(repo.path());
+
+    let scoped = client.call_tool("check_repository", json!({ "paths": ["api/c.yaml"] }));
+    assert!(
+        rules_in(&scoped).contains(&"response-field-removed".to_owned()),
+        "{scoped}"
+    );
+
+    let elsewhere = client.call_tool("check_repository", json!({ "paths": ["README.md"] }));
+    assert_eq!(
+        elsewhere["structuredContent"]["contracts_checked"], 0,
+        "{elsewhere}"
+    );
+
+    let both = client.call_tool(
+        "check_repository",
+        json!({ "paths": ["api/c.yaml"], "since": "main" }),
+    );
+    assert_eq!(both["isError"], true, "{both}");
+}

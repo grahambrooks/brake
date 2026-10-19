@@ -373,13 +373,7 @@ pub fn render_config(discovery: &Discovery, baseline_reference: &str) -> String 
 
 #[must_use]
 pub fn format_name(format: ContractFormat) -> &'static str {
-    match format {
-        ContractFormat::Openapi => "openapi",
-        ContractFormat::Proto => "proto",
-        ContractFormat::Graphql => "graphql",
-        ContractFormat::Asyncapi => "asyncapi",
-        ContractFormat::Mcp => "mcp",
-    }
+    format.name()
 }
 
 /// The ref a merge-base baseline should point at.

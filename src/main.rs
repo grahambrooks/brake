@@ -10,8 +10,8 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use brake::check::{Options, Scope};
-use brake::config::{Baseline, Compatibility, Config};
+use brake::check::{Document, Options, Scope};
+use brake::config::{Baseline, Compatibility, Config, ContractFormat};
 use brake::report::Report;
 use brake::{Severity, Verdict};
 use clap::{Parser, Subcommand};
@@ -128,6 +128,30 @@ enum Command {
         #[arg(long, short, default_value = "auto")]
         format: String,
     },
+    /// Compare two contract documents, with no configuration.
+    ///
+    /// The same check `brake check` runs, over two files you name rather than
+    /// a contract and its baseline. Nothing outside the two files is read: a
+    /// `$ref` into a sibling is reported as unmodelled.
+    Compare {
+        /// The previous version.
+        base: PathBuf,
+        /// The new version.
+        head: PathBuf,
+        /// The contract format: openapi, proto, graphql, asyncapi, mcp.
+        /// Detected by parsing when omitted.
+        #[arg(long)]
+        contract_format: Option<String>,
+        /// Compatibility level: wire, wire-json, surface, strict.
+        #[arg(long, default_value = "wire-json")]
+        compatibility: String,
+        /// Minimum severity that fails the run: info, warning, error.
+        #[arg(long, default_value = "warning")]
+        severity: String,
+        /// Output format: auto, text, json, sarif, github, gitlab.
+        #[arg(long, short, default_value = "auto")]
+        format: String,
+    },
     /// Discover the contracts here and write a brake.toml declaring them.
     ///
     /// A file counts as a contract only if brake can actually parse it, so a
@@ -238,16 +262,20 @@ fn run(cli: Cli) -> Result<ExitCode, String> {
                 // A scoped run has not looked at everything, so it cannot know
                 // a suppression is dead.
                 report_stale: matches!(scope, Scope::All),
-                compatibility: compatibility.as_deref().map(parse_level).transpose()?,
-                baseline: baseline.as_deref().map(parse_baseline),
+                compatibility: compatibility
+                    .as_deref()
+                    .map(Compatibility::parse)
+                    .transpose()?,
+                baseline: baseline.as_deref().map(Baseline::from_flag),
                 only: contract,
                 consumers: consumer,
+                ..Options::default()
             };
 
             let report = brake::check::check(&root, &config_value, &scope, &options);
             emit(&report, &format)?;
             Ok(ExitCode::from(
-                report.exit_code(parse_severity(&severity)?) as u8
+                report.exit_code(Severity::parse(&severity)?) as u8,
             ))
         }
 
@@ -270,16 +298,20 @@ fn run(cli: Cli) -> Result<ExitCode, String> {
                 // analyze covers everything, so a suppression matching nothing
                 // really is dead.
                 report_stale: true,
-                compatibility: compatibility.as_deref().map(parse_level).transpose()?,
+                compatibility: compatibility
+                    .as_deref()
+                    .map(Compatibility::parse)
+                    .transpose()?,
                 baseline: None,
                 only: contract,
                 consumers: consumer,
+                ..Options::default()
             };
 
             let report = brake::check::check(&path, &config_value, &Scope::All, &options);
             emit(&report, &format)?;
             Ok(ExitCode::from(
-                report.exit_code(parse_severity(&fail_on)?) as u8
+                report.exit_code(Severity::parse(&fail_on)?) as u8
             ))
         }
 
@@ -318,15 +350,61 @@ fn run(cli: Cli) -> Result<ExitCode, String> {
                 // Report everything, including additive changes, because the
                 // point is a complete description of the change.
                 compatibility: Some(Compatibility::Strict),
-                baseline: baseline.as_deref().map(parse_baseline),
+                baseline: baseline.as_deref().map(Baseline::from_flag),
                 only: contract,
                 consumers: Vec::new(),
+                ..Options::default()
             };
 
             let report = brake::check::check(&root, &config_value, &Scope::All, &options);
             emit(&report, &format)?;
             // Never gates, by design.
             Ok(ExitCode::from(Verdict::Clean.exit_code() as u8))
+        }
+        Command::Compare {
+            base,
+            head,
+            contract_format,
+            compatibility,
+            severity,
+            format,
+        } => {
+            let read = |path: &Path| {
+                std::fs::read(path)
+                    .map_err(|error| format!("cannot read `{}`: {error}", path.display()))
+            };
+            let contract_format = match contract_format {
+                Some(name) => ContractFormat::parse(&name)?,
+                // The head is what is being judged, so it decides the format.
+                None => brake::init::identify(&head).ok_or_else(|| {
+                    format!(
+                        "`{}` is not a contract brake can parse. Pass --contract-format \
+                         to say which format it is meant to be",
+                        head.display()
+                    )
+                })?,
+            };
+            let (base_bytes, head_bytes) = (read(&base)?, read(&head)?);
+            let (base_label, head_label) = (
+                brake::check::display_path(&base),
+                brake::check::display_path(&head),
+            );
+            let report = brake::check::check_documents(
+                contract_format,
+                Document {
+                    label: &base_label,
+                    bytes: &base_bytes,
+                },
+                Document {
+                    label: &head_label,
+                    bytes: &head_bytes,
+                },
+                Compatibility::parse(&compatibility)?,
+            );
+            emit(&report, &format)?;
+            Ok(ExitCode::from(
+                report.exit_code(Severity::parse(&severity)?) as u8,
+            ))
         }
     }
 }
@@ -479,7 +557,7 @@ fn explain(rule: Option<&str>) -> Result<ExitCode, String> {
                 "{:<28} {:<10} {:<10} {}",
                 definition.id,
                 format!("{:?}", definition.severity).to_lowercase(),
-                level_name(definition.level),
+                definition.level.name(),
                 definition.summary
             );
         }
@@ -496,7 +574,7 @@ fn explain(rule: Option<&str>) -> Result<ExitCode, String> {
         "{}\n\nseverity:      {}\nfires from:    {}\n\n{}\n\n{}",
         definition.id,
         format!("{:?}", definition.severity).to_lowercase(),
-        level_name(definition.level),
+        definition.level.name(),
         definition.summary,
         definition.explanation,
     );
@@ -583,69 +661,6 @@ fn emit(report: &Report, requested_format: &str) -> Result<(), String> {
     Ok(())
 }
 
-/// Interpret a `--baseline` value.
-///
-/// The flag is a convenience over `brake.toml`, so it accepts the same ideas
-/// in one string: a bare revision is the common case, `latest-tag:` names the
-/// glob form, and anything containing a `:` after a known ref is the explicit
-/// `ref:path` shape.
-fn parse_baseline(input: &str) -> Baseline {
-    let input = input.trim();
-    if let Some(pattern) = input.strip_prefix("latest-tag:") {
-        return Baseline::LatestTag {
-            pattern: pattern.to_owned(),
-        };
-    }
-    if let Some(reference) = input.strip_prefix("merge-base:") {
-        return Baseline::GitMergeBase {
-            reference: reference.to_owned(),
-        };
-    }
-    // `ref:path` is distinguishable because a path needs a separator; a bare
-    // revision never contains one.
-    if input.contains(':') {
-        return Baseline::Git {
-            spec: input.to_owned(),
-        };
-    }
-    Baseline::Rev {
-        rev: input.to_owned(),
-    }
-}
-
-fn parse_severity(input: &str) -> Result<Severity, String> {
-    match input.trim().to_ascii_lowercase().as_str() {
-        "info" => Ok(Severity::Info),
-        "warning" | "warn" => Ok(Severity::Warning),
-        "error" | "err" => Ok(Severity::Error),
-        other => Err(format!(
-            "unknown severity `{other}`; expected one of: info, warning, error"
-        )),
-    }
-}
-
-fn parse_level(input: &str) -> Result<Compatibility, String> {
-    match input.trim().to_ascii_lowercase().as_str() {
-        "wire" => Ok(Compatibility::Wire),
-        "wire-json" | "wirejson" => Ok(Compatibility::WireJson),
-        "surface" => Ok(Compatibility::Surface),
-        "strict" => Ok(Compatibility::Strict),
-        other => Err(format!(
-            "unknown compatibility level `{other}`; expected one of: \
-             wire, wire-json, surface, strict"
-        )),
-    }
-}
-
-fn level_name(level: Compatibility) -> &'static str {
-    match level {
-        Compatibility::Wire => "wire",
-        Compatibility::WireJson => "wire-json",
-        Compatibility::Surface => "surface",
-        Compatibility::Strict => "strict",
-    }
-}
-
 /// Today, as `YYYY-MM-DD` UTC.
 ///
 /// Suppression expiry is the one place brake reads the clock — §6.1 guarantee
@@ -710,19 +725,19 @@ mod tests {
 
     #[test]
     fn severity_and_level_parse_their_documented_spellings() {
-        assert_eq!(parse_severity("Error").expect("error"), Severity::Error);
-        assert_eq!(parse_severity(" warn ").expect("warn"), Severity::Warning);
-        assert!(parse_severity("critical").is_err());
+        assert_eq!(Severity::parse("Error").expect("error"), Severity::Error);
+        assert_eq!(Severity::parse(" warn ").expect("warn"), Severity::Warning);
+        assert!(Severity::parse("critical").is_err());
 
         assert_eq!(
-            parse_level("wire-json").expect("wire-json"),
+            Compatibility::parse("wire-json").expect("wire-json"),
             Compatibility::WireJson
         );
         assert_eq!(
-            parse_level("STRICT").expect("strict"),
+            Compatibility::parse("STRICT").expect("strict"),
             Compatibility::Strict
         );
-        assert!(parse_level("loose").is_err());
+        assert!(Compatibility::parse("loose").is_err());
     }
 
     #[test]
@@ -738,19 +753,19 @@ mod tests {
     #[test]
     fn baseline_flag_reads_the_shapes_it_documents() {
         assert!(matches!(
-            parse_baseline("v1.2.0"),
+            Baseline::from_flag("v1.2.0"),
             Baseline::Rev { rev } if rev == "v1.2.0"
         ));
         assert!(matches!(
-            parse_baseline("latest-tag:v*"),
+            Baseline::from_flag("latest-tag:v*"),
             Baseline::LatestTag { pattern } if pattern == "v*"
         ));
         assert!(matches!(
-            parse_baseline("merge-base:origin/main"),
+            Baseline::from_flag("merge-base:origin/main"),
             Baseline::GitMergeBase { reference } if reference == "origin/main"
         ));
         assert!(matches!(
-            parse_baseline("origin/main:api/openapi.yaml"),
+            Baseline::from_flag("origin/main:api/openapi.yaml"),
             Baseline::Git { spec } if spec == "origin/main:api/openapi.yaml"
         ));
     }
@@ -763,7 +778,10 @@ mod tests {
             Compatibility::Surface,
             Compatibility::Strict,
         ] {
-            assert_eq!(parse_level(level_name(level)).expect("round trip"), level);
+            assert_eq!(
+                Compatibility::parse(level.name()).expect("round trip"),
+                level
+            );
         }
     }
 }
