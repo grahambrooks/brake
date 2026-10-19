@@ -1,0 +1,19 @@
+.github/workflows/build.yml
+  s_a72321dcd11d43::t_f2cae959c125fb 47
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "6bbd0be1758e75bdec3b53bc5ed1d268a509a96a",
+  "prompts": {},
+  "sessions": {
+    "s_a72321dcd11d43": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "93f3f613-4242-4cd2-ae35-ed6aa76bb44f",
+        "model": "unknown"
+      },
+      "human_author": "Graham Brooks <graham@grahambrooks.com>"
+    }
+  }
+}
