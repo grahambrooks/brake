@@ -344,6 +344,59 @@ fn compare_contracts_works_with_no_configuration_at_all() {
 }
 
 #[test]
+fn compare_contracts_accepts_an_mcp_tool_snapshot() {
+    let bare = tempdir().expect("tempdir");
+    let mut client = Client::start(bare.path());
+    let base = r#"{"tools": [{"name": "a", "inputSchema": {"type": "object"}},
+                              {"name": "b", "inputSchema": {"type": "object"}}]}"#;
+    let head = r#"{"tools": [{"name": "a", "inputSchema": {"type": "object"}}]}"#;
+
+    let result = client.call_tool(
+        "compare_contracts",
+        json!({ "format": "mcp", "base": base, "head": head }),
+    );
+    assert_eq!(result["isError"], false, "{result}");
+    assert!(
+        result["structuredContent"]
+            .to_string()
+            .contains("endpoint-removed"),
+        "{result}"
+    );
+}
+
+/// The structural checks the commit hook runs, at edit time too, and on the
+/// same terms: what the draft adds, not what was already there.
+#[test]
+fn compare_contracts_runs_the_structural_checks_the_hook_runs() {
+    let bare = tempdir().expect("tempdir");
+    let mut client = Client::start(bare.path());
+    let document = |second_id: &str| {
+        format!(
+            "openapi: 3.1.0\ninfo: {{title: t, version: \"1\"}}\npaths:\n  \
+             /a:\n    get: {{operationId: list, responses: {{\"200\": {{description: ok}}}}}}\n  \
+             /b:\n    get: {{operationId: {second_id}, responses: {{\"200\": {{description: ok}}}}}}\n"
+        )
+    };
+    let rules = |client: &mut Client, base: &str, head: &str| {
+        let result = client.call_tool(
+            "compare_contracts",
+            json!({ "format": "openapi", "base": base, "head": head, "compatibility": "surface" }),
+        );
+        assert_eq!(result["isError"], false, "{result}");
+        result["structuredContent"].to_string()
+    };
+
+    let added = rules(&mut client, &document("listB"), &document("list"));
+    assert!(added.contains("operation-id-duplicate"), "{added}");
+
+    let already_there = rules(&mut client, &document("list"), &document("list"));
+    assert!(
+        !already_there.contains("operation-id-duplicate"),
+        "{already_there}"
+    );
+}
+
+#[test]
 fn an_unverifiable_payload_is_not_reported_as_clean() {
     // A human skims a warning; an agent acts on the absence of one.
     let unreadable = r#"

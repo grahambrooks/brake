@@ -11,8 +11,8 @@ use thiserror::Error;
 
 use super::{
     Constraints, Contract, Discriminator, DocumentResolver, Endpoint, EndpointKey, Field,
-    Parameter, Payload, SecurityRequirement, SecurityScheme, SingleDocumentResolver, Span, TypeRef,
-    Unmodelled, UnmodelledKind,
+    LintCandidate, LintCandidateKind, Parameter, Payload, SecurityRequirement, SecurityScheme,
+    SingleDocumentResolver, Span, TypeRef, Unmodelled, UnmodelledKind,
 };
 
 const HTTP_METHODS: &[(&str, &str)] = &[
@@ -119,6 +119,7 @@ pub fn ingest_with_resolver(
         current_doc_file: None,
         ref_stack: Vec::new(),
         unmodelled: Vec::new(),
+        lint_candidates: Vec::new(),
         fatal: None,
     };
 
@@ -194,6 +195,7 @@ pub fn ingest_with_resolver(
         .unmodelled
         .sort_by(|a, b| a.pointer.cmp(&b.pointer).then_with(|| a.kind.cmp(&b.kind)));
     contract.unmodelled.dedup();
+    contract.lint_candidates = ctx.lint_candidates;
     Ok(contract)
 }
 
@@ -212,6 +214,38 @@ fn check_version(source: &str, root: &MarkedYamlOwned) -> Result<(), OpenApiErro
     })
 }
 
+/// Parse one standalone JSON Schema into a `TypeRef`.
+///
+/// For formats that embed JSON Schema with no OpenAPI document around it, such
+/// as MCP's `inputSchema`. A local `$ref` resolves against `schema` itself,
+/// because that is what `#` means inside a JSON Schema. Resolving it against
+/// the enclosing file would find nothing, or the wrong thing.
+pub(super) fn parse_json_schema(
+    source: &str,
+    schema: &MarkedYamlOwned,
+    pointer: &str,
+) -> Result<(TypeRef, Vec<Unmodelled>), OpenApiError> {
+    let mut ctx = Ctx {
+        source,
+        root: schema,
+        resolver: &SingleDocumentResolver,
+        external_docs: BTreeMap::new(),
+        current_doc_file: None,
+        ref_stack: Vec::new(),
+        unmodelled: Vec::new(),
+        // Structural lint (`design/07-structural-lint.md`) is specified for
+        // OpenAPI documents; whether it applies to an embedded schema is not
+        // yet decided, so candidates found here are not reported.
+        lint_candidates: Vec::new(),
+        fatal: None,
+    };
+    let ty = ctx.parse_schema(schema, pointer);
+    if let Some(error) = ctx.fatal {
+        return Err(error);
+    }
+    Ok((ty, ctx.unmodelled))
+}
+
 struct Ctx<'a> {
     source: &'a str,
     root: &'a MarkedYamlOwned,
@@ -220,6 +254,7 @@ struct Ctx<'a> {
     current_doc_file: Option<String>,
     ref_stack: Vec<String>,
     unmodelled: Vec<Unmodelled>,
+    lint_candidates: Vec<LintCandidate>,
     fatal: Option<OpenApiError>,
 }
 
@@ -549,10 +584,48 @@ impl<'a> Ctx<'a> {
 
         if let Some(enum_node) = get_map_value(schema_node, "enum") {
             if let Some(enum_values) = enum_node.data.as_vec() {
+                // The declared scalar type, if any — used for mismatch detection.
+                let declared_type = get_map_value(schema_node, "type")
+                    .and_then(parse_type_value)
+                    .and_then(|parsed| parsed.names.into_iter().find(|n| n != "null"));
+
                 let mut values = BTreeSet::new();
+                let mut seen_order: Vec<String> = Vec::new();
                 for (index, value) in enum_values.iter().enumerate() {
                     match scalar_repr(value) {
                         Some(repr) => {
+                            // Detect duplicate values before the BTreeSet
+                            // deduplication silently drops the second occurrence.
+                            if seen_order.contains(&repr) {
+                                let enum_pointer = format!("{pointer}/enum/{index}");
+                                self.lint_candidates.push(LintCandidate {
+                                    kind: LintCandidateKind::EnumDuplicateValue,
+                                    pointer: enum_pointer.clone(),
+                                    span: span(self.current_source(), value, enum_pointer),
+                                    detail: format!(
+                                        "enum value `{repr}` appears more than once at \
+                                         `{pointer}/enum`"
+                                    ),
+                                });
+                            } else {
+                                seen_order.push(repr.clone());
+                            }
+                            // Detect type mismatches for typed enums.
+                            if let Some(declared) = &declared_type
+                                && let Some(msg) = enum_value_type_mismatch(&repr, declared)
+                            {
+                                let enum_pointer = format!("{pointer}/enum/{index}");
+                                self.lint_candidates.push(LintCandidate {
+                                    kind: LintCandidateKind::EnumTypeMismatch,
+                                    pointer: enum_pointer.clone(),
+                                    span: span(self.current_source(), value, enum_pointer),
+                                    detail: format!(
+                                        "enum value `{repr}` does not match \
+                                         declared type `{declared}` at \
+                                         `{pointer}/enum`: {msg}"
+                                    ),
+                                });
+                            }
                             values.insert(repr);
                         }
                         // A dropped enum value silently widens the modelled
@@ -1141,6 +1214,35 @@ fn span(source: &str, node: &MarkedYamlOwned, pointer: String) -> Span {
 
 fn escape_json_pointer(value: &str) -> String {
     value.replace('~', "~0").replace('/', "~1")
+}
+
+/// Return an error message if `repr` (the canonical string form of a YAML
+/// scalar) cannot represent a value of `declared_type`.
+///
+/// Only checks types where mismatch is unambiguous (`integer`, `number`,
+/// `boolean`). Skips `string` to avoid false positives — YAML implicit scalars
+/// like `active` round-trip through `scalar_repr` as strings.
+fn enum_value_type_mismatch(repr: &str, declared_type: &str) -> Option<String> {
+    match declared_type {
+        "integer" => repr
+            .parse::<i64>()
+            .err()
+            .map(|_| format!("`{repr}` is not a valid integer")),
+        "number" => repr
+            .parse::<f64>()
+            .err()
+            .map(|_| format!("`{repr}` is not a valid number")),
+        "boolean" => {
+            if repr == "true" || repr == "false" {
+                None
+            } else {
+                Some(format!(
+                    "`{repr}` is not a valid boolean (expected `true` or `false`)"
+                ))
+            }
+        }
+        _ => None,
+    }
 }
 
 #[cfg(test)]

@@ -383,6 +383,58 @@ correctly read it as no reason to move. Give it a date so the eventual removal i
 they were told about rather than something that happens to them.",
         remedies: &["add-sunset-date"],
     },
+    // ── §5.6 structural lint, design/07-structural-lint.md ─────────────────
+    Rule {
+        id: "enum-type-mismatch",
+        severity: Severity::Error,
+        level: Compatibility::Wire,
+        observable_by_demand: true,
+        summary: "An enum value does not match the schema's declared type.",
+        explanation: "A client generated from this schema will deserialise the offending value \
+into the wrong type — or fail to deserialise it at all — whenever the API returns it. The spec \
+parses without error, so this is invisible to a validator that only checks syntax. It is only \
+visible when a consumer tries to use the value at runtime, at which point the crash is in the \
+consumer, not the API.",
+        remedies: &[],
+    },
+    Rule {
+        id: "enum-duplicate-value",
+        severity: Severity::Warning,
+        level: Compatibility::Wire,
+        observable_by_demand: false,
+        summary: "An enum array contains the same value more than once.",
+        explanation: "Code generators for some languages deduplicate enum members silently: the \
+generated type has fewer values than the contract implies. A consumer whose generated enum is \
+missing a value cannot handle an API response that includes it. The impact is generator-dependent, \
+which is why this is a warning rather than an error.",
+        remedies: &[],
+    },
+    Rule {
+        id: "operation-id-duplicate",
+        severity: Severity::Error,
+        level: Compatibility::Surface,
+        observable_by_demand: false,
+        summary: "Two or more operations share the same operationId.",
+        explanation: "Code generators derive method names from operationId. A duplicate produces \
+a compile-time collision in every generated SDK — a guaranteed consumer breakage for any team \
+using code generation, which is the dominant consumption pattern for OpenAPI-described APIs. \
+Nothing breaks on the wire; the break is entirely in the generated client surface, which is \
+why this fires at `surface` level rather than `wire`.",
+        remedies: &[],
+    },
+    Rule {
+        id: "path-param-undeclared",
+        severity: Severity::Error,
+        level: Compatibility::Surface,
+        observable_by_demand: false,
+        summary: "A path template uses {param} but no matching parameter object is declared.",
+        explanation: "SDK generators that follow the spec produce a method whose signature is \
+missing the required argument. Clients compiled against the generated SDK call the endpoint \
+with a literal `{param}` in the URL, or fail to compile, depending on the language. Nothing \
+breaks on the wire when a server fills in a default or ignores the template fragment; the \
+break is in any generated client that tries to call the operation correctly.",
+        remedies: &[],
+    },
     // ── §5.6 integrity ──────────────────────────────────────────────────────
     Rule {
         id: "contract-unreachable",
@@ -852,6 +904,13 @@ mod tests {
             "param-added-optional",
             "response-field-added",
             "response-status-added",
+            // Structural lint rules: they report a defect in the contract
+            // itself rather than a breaking change with a safe alternative.
+            // The fix is to correct the contract. design/07-structural-lint.md.
+            "enum-type-mismatch",
+            "enum-duplicate-value",
+            "operation-id-duplicate",
+            "path-param-undeclared",
         ];
 
         for rule in RULES {

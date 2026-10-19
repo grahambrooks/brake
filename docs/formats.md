@@ -1,10 +1,10 @@
 # Contract formats
 
-Four ingesters, one `Contract` model, one comparator. A rule is written once
+Five ingesters, one `Contract` model, one comparator. A rule is written once
 and fires on every format that can express the thing it is about — which is why
 `endpoint-removed` catches a deleted OpenAPI path, a deleted protobuf RPC, a
-deleted GraphQL query field and a deleted AsyncAPI channel operation, without
-four implementations.
+deleted GraphQL query field, a deleted AsyncAPI channel operation and a deleted
+MCP tool, without five implementations.
 
 | `format` | Reads | Version support |
 | --- | --- | --- |
@@ -12,13 +12,14 @@ four implementations.
 | `proto` | `.proto` files | proto3 |
 | `graphql` | `.graphql` / `.graphqls` / `.gql` SDL | Schema documents |
 | `asyncapi` | `.yaml` / `.json` AsyncAPI documents | 2.x and 3.x |
+| `mcp` | `.json` snapshots of an MCP server's `tools/list` result | Tool schemas in JSON Schema 2020-12 |
 
 `brake init` picks the format by **parsing**, never by filename. A file counts
 as a contract only if an ingester can actually read it.
 
 ## OpenAPI
 
-The most complete of the four. Endpoints are `METHOD /path/{template}`, and
+The most complete of the five. Endpoints are `METHOD /path/{template}`, and
 request bodies, parameters, responses, status codes, media types and security
 requirements are all modelled.
 
@@ -36,6 +37,11 @@ deferred:
 Those feed the rules that already exist — `response-type-changed`,
 `param-type-narrowed` — rather than adding new ones. A tuple whose element type
 changed is a type change; it does not need a rule of its own.
+
+OpenAPI is also the format the [structural checks](configuration.md#structural-checks)
+are written for. The two enum checks read OpenAPI schemas only; the
+`operationId` and path-parameter checks read the model, so they also cover the
+other formats where the construct exists.
 
 ## Protobuf
 
@@ -90,6 +96,68 @@ understanding before turning this on:
 
 Get the direction wrong in the document and `brake` will faithfully check the
 wrong variance, so it is worth reading the operation keywords once.
+
+## MCP tool lists
+
+An MCP server's tools are an API: a tool disappears, an argument becomes
+required, a field of `structuredContent` vanishes. `format = "mcp"` reads a
+committed snapshot of the server's `tools/list` result — the bare result, or
+the JSON-RPC response that carried it:
+
+```json
+{
+  "tools": [
+    {
+      "name": "search_issues",
+      "inputSchema": {
+        "type": "object",
+        "properties": { "query": { "type": "string" } },
+        "required": ["query"]
+      }
+    }
+  ]
+}
+```
+
+| MCP | `Contract` |
+| --- | --- |
+| Tool `name` | Endpoint `CALL /tools/<name>` |
+| `inputSchema` | The request body |
+| `outputSchema` | The response, under `result` |
+
+**`brake` never starts the server.** The snapshot comes from the server's own
+build: a dump flag, a test that serialises the tool list, or a CI step. Declare
+that command as the contract's `generator` and `brake check --drift` will tell
+you when the committed snapshot is stale.
+
+What it catches, through the rules that already exist:
+
+- A tool removed or renamed is `endpoint-removed`.
+- A new required argument is `param-added-required`.
+- An argument removed, narrowed, or made required is `param-type-narrowed`.
+- A `structuredContent` field removed or retyped is `response-field-removed` or
+  `response-type-changed`.
+- Dropping `outputSchema` is `response-status-removed`.
+
+Some things are not compared, on purpose:
+
+- **Descriptions and annotations.** A changed description can change how a
+  model uses a tool, but `brake` cannot tell a clarification from a semantic
+  change.
+- **Prompts and resources.**
+
+Two limits are worth knowing:
+
+- **A model reading the tool list fresh adapts to it.** The consumers this
+  protects are the ones that stored something: permission allowlists naming
+  `mcp__server__tool`, skills and prompts that name tools and arguments, and
+  programmatic clients.
+- **MCP has no deprecation marker on a tool**, so `removed-without-deprecation`
+  fires on every removal. Keep the old name as an alias for a release.
+
+A snapshot carrying `nextCursor` is one page of a paginated list and is
+refused. Concatenate the pages before committing it. The reasoning is in
+[design/08-mcp-tool-contracts.md](../design/08-mcp-tool-contracts.md).
 
 ## Contracts that span several files
 

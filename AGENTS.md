@@ -23,10 +23,21 @@ including what is deliberately *not* being built — check it before
 
 ## Status
 
-M0–M6 are done, and so are M7 (protobuf), M8 (GraphQL) and AsyncAPI 2.x/3.x.
-All four ingesters produce the same `Contract` and share one comparator;
+M0–M6 are done, and so are M7 (protobuf), M8 (GraphQL), AsyncAPI 2.x/3.x and
+MCP `tools/list` snapshots
+([design/08-mcp-tool-contracts.md](design/08-mcp-tool-contracts.md)).
+All five ingesters produce the same `Contract` and share one comparator;
 `check`, `analyze`, `diff`, `explain` and `consumers` work; text, JSON, SARIF,
 GitHub workflow commands and GitLab Code Quality all render.
+
+Four structural lint rules
+([design/07-structural-lint.md](design/07-structural-lint.md)) check the head
+contract with no baseline. They live in `src/rules/lint.rs`.
+`lint::introduced` reports only defects the baseline lacks, the same ratchet
+as every comparison rule. `check::check_contract` and the MCP tools both call
+it, and the library exposes it as `brake::lint`, so the hook, the agent and
+forge cannot disagree. A `contract-new` contract is linted in full; a
+`baseline-unconfigured` one is not linted, because it has not opted in.
 
 A contract may span several files: a cross-file `$ref` is resolved through a
 `DocumentResolver`, hermetically, within the document's own directory.
@@ -103,6 +114,9 @@ What is worth knowing before changing anything:
   baseline read out of git, `source` is a label like `rev:HEAD` and names no
   directory at all. Each resolver is rooted at the contract's own directory,
   which is also the boundary a `$ref` cannot reach past.
+- **`Contract` is public API too.** Adding a field, as `lint_candidates` was,
+  breaks any struct literal downstream. `Contract::empty()` is the
+  constructor to point consumers at.
 - **`TypeRef` is public API that forge matches on.** Adding a variant, or a
   field to one, breaks every exhaustive `match` and struct-variant literal
   downstream. It is sometimes the right thing to do — say so in the release
@@ -113,6 +127,11 @@ What is worth knowing before changing anything:
   reusing a reserved number or name is currently reported as `contract-partial`
   via an unmodelled entry. Never document a proposal as behaviour — check
   `src/rules/catalogue.rs`, which is the only list of rules that exist.
+- **An unmodelled entry reaches a finding only through a `TypeRef::Unknown`**
+  inside an endpoint. `Contract::unmodelled` alone is never reported, so a
+  gap with no endpoint to attach to has to be an ingest error instead. That
+  is why the MCP ingester refuses a paginated snapshot rather than marking it
+  partial.
 
 ## Core constraints
 
