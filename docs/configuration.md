@@ -138,12 +138,46 @@ thing a human has to read and dismiss.
 
 | Level | Adds | Use when |
 | --- | --- | --- |
-| `wire` | Endpoint or method removal, newly-required input, type narrowing, protobuf renumbering | Internal services, tolerant readers |
+| `wire` | Endpoint or method removal, newly-required input, type narrowing, protobuf renumbering, an enum value that contradicts its `type` | Internal services, tolerant readers |
 | `wire-json` | Field rename, response field removal, status-code removal, security strengthening | **Default.** Most HTTP/JSON APIs |
-| `surface` | Anything that breaks generated client code — `operationId` change, path-parameter rename | Consumers generate clients |
+| `surface` | Anything that breaks generated client code — `operationId` change or duplicate, path-parameter rename, an undeclared path parameter | Consumers generate clients |
 | `strict` | Any non-additive change at all, including new optional fields | Frozen public APIs under contract |
 
 Which rules belong to which level is in the [rule catalogue](rules.md).
+
+## Structural checks
+
+Four rules look at the head contract on its own, with no baseline involved.
+Each is a defect that breaks a consumer even when there is no previous version
+to compare against:
+
+| Rule | Severity | Level | What breaks |
+| --- | --- | --- | --- |
+| `enum-type-mismatch` | error | `wire` | A generated client fails to deserialise the value that contradicts the enum's `type` |
+| `enum-duplicate-value` | warning | `wire` | Generators that deduplicate produce a type with fewer members than the contract |
+| `operation-id-duplicate` | error | `surface` | Two generated methods with the same name, so the SDK does not compile |
+| `path-param-undeclared` | error | `surface` | The generated method has no argument for `{param}` in the path |
+
+They use the same catalogue, levels and `[[contract.allow]]` suppressions as
+every other rule. Style rules, such as naming conventions or missing
+descriptions, remain out of scope. The reasoning is in
+[design/07-structural-lint.md](../design/07-structural-lint.md).
+
+Know where they run before relying on them:
+
+- **They report what is in the file, not what the change added.** A
+  structural defect already in the baseline is reported on every check of
+  that contract. Fix it, or suppress it with a reason, before turning the
+  check on in a hook.
+- **They run only when there is a baseline to compare with.** A contract
+  reported as `contract-new` or `baseline-unconfigured` is not checked
+  structurally.
+- **They run in `brake check`, `brake analyze`, `brake diff` and the MCP
+  `check_repository` tool.** The MCP `check_change` and `compare_contracts`
+  tools, and the library's `brake::compare` / `brake::evaluate`, do not run
+  them.
+- **The enum checks read OpenAPI schemas only.** An AsyncAPI payload or an MCP
+  tool schema is not checked for them.
 
 ## Suppressions — `[[contract.allow]]`
 

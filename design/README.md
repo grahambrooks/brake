@@ -36,6 +36,10 @@ built: pact, GraphQL-operation and native-manifest declarations, the join, the
 consumer rules, `affects` on every finding, the three policies, `brake
 consumers` and `who_consumes` over MCP.
 
+The four structural lint rules in [07-structural-lint.md](07-structural-lint.md)
+are built. They run inside `check`, so they need a baseline to run at all, and
+the MCP `check_change` and `compare_contracts` tools do not run them.
+
 The MCP tool-list ingester in [08-mcp-tool-contracts.md](08-mcp-tool-contracts.md)
 is built, and adds no rules.
 

@@ -19,7 +19,7 @@ as a contract only if an ingester can actually read it.
 
 ## OpenAPI
 
-The most complete of the four. Endpoints are `METHOD /path/{template}`, and
+The most complete of the five. Endpoints are `METHOD /path/{template}`, and
 request bodies, parameters, responses, status codes, media types and security
 requirements are all modelled.
 
@@ -37,6 +37,11 @@ deferred:
 Those feed the rules that already exist — `response-type-changed`,
 `param-type-narrowed` — rather than adding new ones. A tuple whose element type
 changed is a type change; it does not need a rule of its own.
+
+OpenAPI is also the format the [structural checks](configuration.md#structural-checks)
+are written for. The two enum checks read OpenAPI schemas only; the
+`operationId` and path-parameter checks read the model, so they also cover the
+other formats where the construct exists.
 
 ## Protobuf
 

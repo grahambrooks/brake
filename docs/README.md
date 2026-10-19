@@ -3,7 +3,7 @@
 # brake documentation
 
 `brake` checks API contracts for backward compatibility and fails the commit
-when a change would break a consumer. One ruleset, four formats, two scopes —
+when a change would break a consumer. One ruleset, five formats, two scopes —
 `brake check` on a change at commit time, `brake analyze` over the whole
 repository in CI.
 

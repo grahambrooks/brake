@@ -30,6 +30,11 @@ All five ingesters produce the same `Contract` and share one comparator;
 `check`, `analyze`, `diff`, `explain` and `consumers` work; text, JSON, SARIF,
 GitHub workflow commands and GitLab Code Quality all render.
 
+Four structural lint rules
+([design/07-structural-lint.md](design/07-structural-lint.md)) check the head
+contract with no baseline. They live in `src/rules/lint.rs` and run from
+`check::check_contract` only, after the comparison and before suppressions.
+
 A contract may span several files: a cross-file `$ref` is resolved through a
 `DocumentResolver`, hermetically, within the document's own directory.
 OpenAPI 3.1 type arrays, `prefixItems` tuples and `discriminator` mappings are
@@ -105,6 +110,9 @@ What is worth knowing before changing anything:
   baseline read out of git, `source` is a label like `rev:HEAD` and names no
   directory at all. Each resolver is rooted at the contract's own directory,
   which is also the boundary a `$ref` cannot reach past.
+- **`Contract` is public API too.** Adding a field, as `lint_candidates` was,
+  breaks any struct literal downstream. `Contract::empty()` is the
+  constructor to point consumers at.
 - **`TypeRef` is public API that forge matches on.** Adding a variant, or a
   field to one, breaks every exhaustive `match` and struct-variant literal
   downstream. It is sometimes the right thing to do — say so in the release
