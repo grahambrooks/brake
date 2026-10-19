@@ -275,6 +275,11 @@ paths:
     get:
       operationId: getPayment
       parameters:
+        - name: payment_id
+          in: path
+          required: true
+          schema:
+            type: string
         - name: tenant
           in: query
           required: true

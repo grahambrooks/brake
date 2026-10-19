@@ -4,6 +4,7 @@
 //! renderer decides how they look.
 
 pub mod catalogue;
+pub mod lint;
 pub mod strategies;
 
 use crate::Severity;

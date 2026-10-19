@@ -48,6 +48,10 @@ pub struct Contract {
     /// becomes `contract-partial`, so the verdict says "not fully verified"
     /// rather than "clean".
     pub unmodelled: Vec<Unmodelled>,
+    /// Structural defects the ingester detected that require their own rule IDs
+    /// and cannot be represented as `Unmodelled`. Converted to findings by the
+    /// `rules::lint` pass after ingestion. See `design/07-structural-lint.md`.
+    pub lint_candidates: Vec<LintCandidate>,
 }
 
 impl Contract {
@@ -57,8 +61,27 @@ impl Contract {
             endpoints: BTreeMap::new(),
             security_schemes: BTreeMap::new(),
             unmodelled: Vec::new(),
+            lint_candidates: Vec::new(),
         }
     }
+}
+
+/// A structural defect detected during ingestion that maps to a specific lint
+/// rule rather than to `contract-partial`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LintCandidate {
+    pub kind: LintCandidateKind,
+    pub pointer: String,
+    pub span: Span,
+    pub detail: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum LintCandidateKind {
+    /// An enum value's YAML type does not match the schema's declared `type`.
+    EnumTypeMismatch,
+    /// An enum array contains the same value more than once.
+    EnumDuplicateValue,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

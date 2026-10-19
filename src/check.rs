@@ -336,7 +336,13 @@ pub fn check_contract(
     changes.sort();
     changes.dedup();
 
-    let findings = rules::evaluate(&changes, &contract.name, level);
+    let mut findings = rules::evaluate(&changes, &contract.name, level);
+    // Structural lint rules run against the head contract only — no baseline
+    // comparison involved. See design/07-structural-lint.md.
+    findings.extend(rules::lint::lint(&head_contract, &contract.name, level));
+    findings.sort();
+    findings.dedup();
+
     report.findings = rules::apply_suppressions(
         findings,
         &contract.name,
