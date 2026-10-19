@@ -1,0 +1,21 @@
+src/baseline.rs
+  s_a72321dcd11d43::t_11d04e559e5fe7 281,315-316,319-320,770-802
+src/check.rs
+  s_a72321dcd11d43::t_61b91707376e4a 547-548
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "b5b84a553d3062b84cd1782ab7694a68b95f7bf8",
+  "prompts": {},
+  "sessions": {
+    "s_a72321dcd11d43": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "93f3f613-4242-4cd2-ae35-ed6aa76bb44f",
+        "model": "unknown"
+      },
+      "human_author": "Graham Brooks <graham@grahambrooks.com>"
+    }
+  }
+}
