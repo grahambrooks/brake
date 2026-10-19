@@ -1,0 +1,64 @@
+docs/rules.md
+  s_a72321dcd11d43::t_011e6e7ba12edb 39-42,458-488
+  s_a72321dcd11d43::t_95e7eb29b37093 489
+src/rules/catalogue.rs
+  s_998f2a6ed68269::t_c4b1206930cb86 386-437
+  s_998f2a6ed68269::t_269fdeea990f32 907-913
+src/rules/lint.rs
+  s_998f2a6ed68269::t_d5d545671dbb73 1-9,11-28,30-90,92-138,140-213,217-239,243-292,296-317,321-337,341-348,351-461
+  s_998f2a6ed68269::t_3777b5549a20f4 29,91,214-216,240-242,293-295,318-320,338-340,349-350
+  s_998f2a6ed68269::t_4fccbbd00a82a2 139
+  s_998f2a6ed68269::t_7b1d2f8d79f83b 10
+design/README.md
+  s_998f2a6ed68269::t_24f535d9d53f16 22
+src/rules/mod.rs
+  s_998f2a6ed68269::t_8d2a322a5ac1f9 7
+tests/diagnostics.rs
+  s_998f2a6ed68269::t_0a23ead0b30c12 278-282
+src/check.rs
+  s_998f2a6ed68269::t_4d59379d034ebb 339-345
+src/contract/openapi.rs
+  s_998f2a6ed68269::t_2ff3bad9173fb9 122
+  s_998f2a6ed68269::t_3247738928d915 14-15
+  s_998f2a6ed68269::t_73c71184bac068 257
+  s_998f2a6ed68269::t_1a36502dfd661d 1219-1226,1235-1247
+  s_998f2a6ed68269::t_dab22f4e1560f6 614-627
+  s_998f2a6ed68269::t_45a46a445508fd 587-588,590-591,593,597-599,601-603,605-613,628
+  s_998f2a6ed68269::t_7329b59347af08 198
+  s_998f2a6ed68269::t_3777b5549a20f4 600,604,1227-1234
+  s_a72321dcd11d43::t_80dfe39a0c96eb 236-239
+  s_998f2a6ed68269::t_5ddd90236d7ab9 589
+design/07-structural-lint.md
+  s_998f2a6ed68269::t_403d1e0f1cc8e4 1-159
+src/contract/asyncapi.rs
+  s_998f2a6ed68269::t_91d4d9e16ba3ba 110
+src/contract/mod.rs
+  s_998f2a6ed68269::t_448cf25fdb8faa 51-54,64,69-85
+  s_a72321dcd11d43::t_b00f9ac2588f48 86
+tests/snapshots/diagnostics__levels.snap
+  s_a72321dcd11d43::t_34e3ff191cfec0 6,10,15,21
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "06a9581c0eb2a6f6f87035c60d849f48f9614910",
+  "prompts": {},
+  "sessions": {
+    "s_998f2a6ed68269": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c6fec01d-156e-4a39-8b23-f489df24af08",
+        "model": "claude-sonnet-4-6"
+      },
+      "human_author": null
+    },
+    "s_a72321dcd11d43": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "93f3f613-4242-4cd2-ae35-ed6aa76bb44f",
+        "model": "unknown"
+      },
+      "human_author": "Graham Brooks <graham@grahambrooks.com>"
+    }
+  }
+}
