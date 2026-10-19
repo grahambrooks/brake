@@ -135,8 +135,8 @@ Concretely excluded:
 
 ## Implementation
 
-These are **static lint rules**, not comparison rules. They run against the head
-contract only, with no baseline involved. A new `rules::lint` module holds the
+These are **static lint rules**, not comparison rules. Each reads one contract
+on its own. A new `rules::lint` module holds the
 logic; `check::check_contract` calls it immediately after the comparison pass and
 before suppressions are applied, so the full `[[contract.allow]]` mechanism covers
 these findings like any other.
@@ -149,6 +149,30 @@ lint pass by walking `contract.endpoints`.
 
 Positive and negative tests exist for all four rules: the rule fires on the
 defect, and stays silent on a valid contract.
+
+### Reporting what the change introduced
+
+A check reports only the lint findings the baseline does not already have
+(`lint::introduced`). Two findings are the same defect when they share a rule,
+pointer, subject, method and path. Message and span are not compared, so a
+defect that moved down the file, or a duplicate `operationId` that gained a
+third endpoint, is still the defect the baseline had.
+
+The first version linted the whole head contract on every check. A contract
+with one old duplicate `operationId` then failed every commit that touched it,
+which broke the ratchet in [01-thesis.md](01-thesis.md): a repository with
+existing findings has to pass every commit that does not add one.
+
+Where there is no baseline contract, the outcome depends on why:
+
+| Situation | Linted? | Why |
+| --- | --- | --- |
+| `contract-new`: the contract is absent from the baseline | Yes, in full | Every defect in it is one this change introduces |
+| `baseline-unconfigured`: no baseline is declared | No | The contract has not opted in to gating, and that path deliberately exits 0 |
+
+The MCP tools run the same function as `check`, and the library exposes it as
+`brake::lint`. An agent asking `check_change` about a draft therefore gets the
+answer the commit hook will give.
 
 ---
 

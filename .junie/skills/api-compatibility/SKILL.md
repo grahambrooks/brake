@@ -125,10 +125,10 @@ anything about the change.
   human assertion — treat undeclared consumers as possible.
 - **`unavailable` is not clean.** A construct `brake` cannot model is named
   rather than ignored. Report it; do not round it down to a pass.
-- **`check_change` and `compare_contracts` skip the four structural checks**
+- **Four structural checks look at the draft on its own**
   (`enum-type-mismatch`, `enum-duplicate-value`, `operation-id-duplicate`,
-  `path-param-undeclared`). The commit hook runs them. Use `check_repository`,
-  or `brake check`, before saying a draft will pass the hook.
+  `path-param-undeclared`). They report only what the draft adds, so an old
+  defect will not appear, and a new one is a break like any other.
 - The compatibility level changes the answer. `wire-json` is the default;
   `surface` also catches what breaks generated client code; `strict` reports
   additive changes too.

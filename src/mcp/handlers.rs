@@ -513,7 +513,13 @@ fn evaluate_pair(
     level: Compatibility,
 ) -> Vec<Finding> {
     let changes = crate::compare(base, head);
-    crate::evaluate(&changes, contract, level)
+    let mut findings = crate::evaluate(&changes, contract, level);
+    // The structural checks `brake check` runs. Without them an agent was told
+    // a draft was clean that the commit hook then rejected.
+    findings.extend(crate::lint(base, head, contract, level));
+    findings.sort();
+    findings.dedup();
+    findings
 }
 
 /// The response shape of `design/04-mcp-interface.md` §3.1.

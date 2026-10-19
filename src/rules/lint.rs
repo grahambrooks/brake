@@ -3,7 +3,7 @@
 //! Checks the head contract for defects that break consumers regardless of
 //! version history. See `design/07-structural-lint.md`.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use crate::config::Compatibility;
 use crate::contract::{Contract, LintCandidateKind};
@@ -24,6 +24,43 @@ pub fn lint(contract: &Contract, contract_name: &str, level: Compatibility) -> V
     findings.sort();
     findings.dedup();
     findings
+}
+
+/// The lint findings `head` has and `base` does not.
+///
+/// A check reports what a change introduced, never what was already there. A
+/// defect already in the baseline fails no commit, which is the ratchet every
+/// comparison rule follows (`design/01-thesis.md`, "Scope is a better ratchet
+/// than a baseline"). Reporting the whole file instead blocked every edit to a
+/// contract that had one old duplicate `operationId`.
+#[must_use]
+pub fn introduced(
+    base: &Contract,
+    head: &Contract,
+    contract_name: &str,
+    level: Compatibility,
+) -> Vec<Finding> {
+    let base_findings = lint(base, contract_name, level);
+    let existing: BTreeSet<_> = base_findings.iter().map(identity).collect();
+    lint(head, contract_name, level)
+        .into_iter()
+        .filter(|finding| !existing.contains(&identity(finding)))
+        .collect()
+}
+
+/// What makes two lint findings the same defect.
+///
+/// Not the span and not the message: a defect that moved down the file, or a
+/// duplicate `operationId` that gained a third endpoint, is still the defect
+/// the baseline already had.
+fn identity(finding: &Finding) -> (&'static str, &str, Option<&str>, Option<&str>, Option<&str>) {
+    (
+        finding.rule_id,
+        finding.pointer.as_str(),
+        finding.subject.as_deref(),
+        finding.method.as_deref(),
+        finding.path.as_deref(),
+    )
 }
 
 fn from_candidates(contract: &Contract, contract_name: &str, level: Compatibility) -> Vec<Finding> {
@@ -165,6 +202,53 @@ mod tests {
     fn parse(yaml: &str) -> Contract {
         crate::contract::openapi::ingest("test.yaml", yaml.as_bytes())
             .expect("valid OpenAPI fixture")
+    }
+
+    // ── introduced ───────────────────────────────────────────────────────────
+
+    const DUPLICATED: &str = "openapi: 3.1.0
+info: {title: T, version: 0}
+paths:
+  /a:
+    get:
+      operationId: doThing
+      responses: {'200': {description: ok}}
+  /b:
+    get:
+      operationId: doThing
+      responses: {'200': {description: ok}}
+";
+
+    #[test]
+    fn a_defect_already_in_the_baseline_is_not_introduced() {
+        let contract = parse(DUPLICATED);
+        let introduced = introduced(&contract, &contract, "api", Compatibility::Surface);
+        assert!(introduced.is_empty(), "{introduced:?}");
+    }
+
+    #[test]
+    fn a_defect_the_change_adds_is_introduced() {
+        let base = parse(&DUPLICATED.replace(
+            "operationId: doThing\n      responses: {'200': {description: ok}}\n  /b",
+            "operationId: doOther\n      responses: {'200': {description: ok}}\n  /b",
+        ));
+        let head = parse(DUPLICATED);
+        let ids: Vec<_> = introduced(&base, &head, "api", Compatibility::Surface)
+            .iter()
+            .map(|finding| finding.rule_id)
+            .collect();
+        assert_eq!(ids, vec!["operation-id-duplicate"]);
+    }
+
+    #[test]
+    fn an_old_defect_that_moved_is_still_the_old_defect() {
+        let base = parse(DUPLICATED);
+        let head = parse(&DUPLICATED.replace(
+            "paths:\n",
+            "paths:\n  /z:\n    get:\n      operationId: unrelated\n      responses: {'200': {description: ok}}\n",
+        ));
+        let introduced = introduced(&base, &head, "api", Compatibility::Surface);
+        assert!(introduced.is_empty(), "{introduced:?}");
     }
 
     // ── operation-id-duplicate ───────────────────────────────────────────────

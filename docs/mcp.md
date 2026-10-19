@@ -72,9 +72,9 @@ moment to reconsider a rename is before it exists.
 With more than one contract configured and no `contract` given, it refuses to
 guess rather than picking one.
 
-It compares the two documents and does not run the
-[structural checks](configuration.md#structural-checks). Neither does
-`compare_contracts`. `check_repository` runs them, as the commit hook does.
+Like every tool here, it runs the
+[structural checks](configuration.md#structural-checks) the commit hook runs,
+and reports only the defects the draft adds.
 
 ### `compare_contracts`
 

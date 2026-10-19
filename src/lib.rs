@@ -124,6 +124,18 @@ pub fn evaluate(changes: &[Change], contract: &str, level: Level) -> Vec<Finding
     rules::evaluate(changes, contract, level)
 }
 
+/// Structural defects `head` introduces that `base` does not already have.
+///
+/// The four structural lint rules (`design/07-structural-lint.md`) read one
+/// contract on its own, so [`compare`] and [`evaluate`] never see them. Call
+/// this alongside them to get what `brake check` reports. `base` is the
+/// previous version of the contract. To lint a contract that has no previous
+/// version, pass [`Contract::empty`] as `base`.
+#[must_use]
+pub fn lint(base: &Contract, head: &Contract, contract: &str, level: Level) -> Vec<Finding> {
+    rules::lint::introduced(base, head, contract, level)
+}
+
 /// Severity of a finding.
 ///
 /// Ordered so that `>=` against a threshold is the reporting test.

@@ -32,8 +32,12 @@ GitHub workflow commands and GitLab Code Quality all render.
 
 Four structural lint rules
 ([design/07-structural-lint.md](design/07-structural-lint.md)) check the head
-contract with no baseline. They live in `src/rules/lint.rs` and run from
-`check::check_contract` only, after the comparison and before suppressions.
+contract with no baseline. They live in `src/rules/lint.rs`.
+`lint::introduced` reports only defects the baseline lacks, the same ratchet
+as every comparison rule. `check::check_contract` and the MCP tools both call
+it, and the library exposes it as `brake::lint`, so the hook, the agent and
+forge cannot disagree. A `contract-new` contract is linted in full; a
+`baseline-unconfigured` one is not linted, because it has not opted in.
 
 A contract may span several files: a cross-file `$ref` is resolved through a
 `DocumentResolver`, hermetically, within the document's own directory.

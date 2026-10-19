@@ -366,6 +366,9 @@ brake = { version = "2026.8", default-features = false }
 `default-features = false` drops `clap`, colour, and terminal handling, leaving
 ingest, comparison, and the rule catalogue.
 
+`brake::compare` and `brake::evaluate` cover the compatibility rules. Call
+`brake::lint` as well to get the four structural checks `brake check` runs.
+
 ## Licence
 
 MIT. See [LICENSE](LICENSE).

@@ -241,6 +241,10 @@ pub fn check_contract(
         }
     };
 
+    let level = options
+        .compatibility
+        .unwrap_or_else(|| contract.effective_compatibility(defaults));
+
     let baseline_override = options.baseline.clone();
     let resolved = match baseline::resolve_for_contract(
         repo_root,
@@ -263,6 +267,8 @@ pub fn check_contract(
                     contract.name
                 ),
             ));
+            // Not linted: a user with no baseline has not opted in to gating
+            // at all, and an error here would fail a run they never asked for.
             return report;
         }
         // The baseline resolved, but this contract is not in it: the contract
@@ -272,6 +278,14 @@ pub fn check_contract(
                 "contract-new",
                 &contract.name,
                 format!("{error}. Nothing was compared"),
+            ));
+            report.findings.extend(lint_without_baseline(
+                repo_root,
+                contract,
+                &head_relative,
+                &head_bytes,
+                level,
+                options,
             ));
             return report;
         }
@@ -325,10 +339,6 @@ pub fn check_contract(
         report.sources.insert(head_relative.clone(), text);
     }
 
-    let level = options
-        .compatibility
-        .unwrap_or_else(|| contract.effective_compatibility(defaults));
-
     let mut changes = compare::compare_contracts(&base_contract, &head_contract);
     // An unmodelled construct on an endpoint that is byte-identical on both
     // sides is still an unverified path, and must not read as clean.
@@ -337,9 +347,15 @@ pub fn check_contract(
     changes.dedup();
 
     let mut findings = rules::evaluate(&changes, &contract.name, level);
-    // Structural lint rules run against the head contract only — no baseline
-    // comparison involved. See design/07-structural-lint.md.
-    findings.extend(rules::lint::lint(&head_contract, &contract.name, level));
+    // Structural lint reads the head contract on its own, but reports only the
+    // defects the baseline does not already have. See
+    // design/07-structural-lint.md.
+    findings.extend(rules::lint::introduced(
+        &base_contract,
+        &head_contract,
+        &contract.name,
+        level,
+    ));
     findings.sort();
     findings.dedup();
 
@@ -368,6 +384,36 @@ pub fn check_contract(
     }
 
     report
+}
+
+/// Structural lint for a contract that is new in this change.
+///
+/// Lint needs no baseline, and a contract absent from the baseline introduces
+/// every defect it has. Returning early without it let a first draft that
+/// breaks every generated client through as a note.
+fn lint_without_baseline(
+    repo_root: &Path,
+    contract: &ContractConfig,
+    head_relative: &str,
+    head_bytes: &[u8],
+    level: crate::config::Compatibility,
+    options: &Options,
+) -> Vec<Finding> {
+    let resolver = contract::FileSystemResolver::new(repo_root.join(parent_dir(&contract.source)));
+    match ingest(contract.format, head_relative, head_bytes, &resolver) {
+        Ok(head) => rules::apply_suppressions(
+            rules::lint::lint(&head, &contract.name, level),
+            &contract.name,
+            &contract.allow,
+            options.as_of.as_deref(),
+            // Every compatibility rule is absent here by construction, so an
+            // `allow` aimed at one would read as stale when it is not.
+            false,
+        ),
+        // A contract that does not parse cannot be linted, and saying nothing
+        // would read as a clean lint.
+        Err(error) => vec![rules::contract_unreachable(&contract.name, &error, None)],
+    }
 }
 
 fn ingest(
@@ -1012,6 +1058,141 @@ paths:
                 .iter()
                 .any(|finding| finding.rule_id == "contract-new")
         );
+    }
+
+    const DUPLICATE_OPERATION_ID: &str = r#"
+openapi: 3.1.0
+info: { title: Payments, version: "1" }
+paths:
+  /payments:
+    get:
+      operationId: listPayments
+      responses: { "200": { description: ok } }
+  /refunds:
+    get:
+      operationId: listPayments
+      responses: { "200": { description: ok } }
+"#;
+
+    fn lint_rules(report: &Report) -> Vec<&'static str> {
+        report
+            .findings
+            .iter()
+            .map(|finding| finding.rule_id)
+            .filter(|rule| *rule == "operation-id-duplicate")
+            .collect()
+    }
+
+    fn surface(mut contract: ContractConfig) -> ContractConfig {
+        contract.compatibility = Some(crate::config::Compatibility::Surface);
+        contract
+    }
+
+    #[test]
+    fn a_structural_defect_already_in_the_baseline_fails_no_commit() {
+        let repo = repo_with(&[
+            ("api/openapi.baseline.yaml", DUPLICATE_OPERATION_ID),
+            ("api/openapi.yaml", DUPLICATE_OPERATION_ID),
+        ]);
+        let config = config_of(vec![surface(contract_at(
+            "payments",
+            "api/openapi.yaml",
+            "api/openapi.baseline.yaml",
+        ))]);
+
+        let report = check(repo.path(), &config, &Scope::All, &Options::default());
+        assert_eq!(lint_rules(&report), Vec::<&str>::new(), "{report:?}");
+        assert_eq!(report.exit_code(Severity::Error), 0);
+    }
+
+    #[test]
+    fn a_structural_defect_the_change_adds_fails_the_commit() {
+        // The baseline's second operation had its own id; the change reuses one.
+        let duplicated = "operationId: listPayments";
+        let second = DUPLICATE_OPERATION_ID.rfind(duplicated).expect("fixture");
+        let baseline = format!(
+            "{}operationId: listRefunds{}",
+            &DUPLICATE_OPERATION_ID[..second],
+            &DUPLICATE_OPERATION_ID[second + duplicated.len()..]
+        );
+        let repo = repo_with(&[
+            ("api/openapi.baseline.yaml", &baseline),
+            ("api/openapi.yaml", DUPLICATE_OPERATION_ID),
+        ]);
+        let config = config_of(vec![surface(contract_at(
+            "payments",
+            "api/openapi.yaml",
+            "api/openapi.baseline.yaml",
+        ))]);
+
+        let report = check(repo.path(), &config, &Scope::All, &Options::default());
+        assert_eq!(
+            lint_rules(&report),
+            vec!["operation-id-duplicate"],
+            "{report:?}"
+        );
+    }
+
+    #[test]
+    fn a_new_contract_is_linted_in_full() {
+        let repo = repo_with(&[("api/openapi.yaml", DUPLICATE_OPERATION_ID)]);
+        run_git(repo.path(), &["init", "-b", "main"]);
+        run_git(repo.path(), &["config", "user.name", "Brake Test"]);
+        run_git(repo.path(), &["config", "user.email", "brake@example.com"]);
+        fs::write(repo.path().join("README.md"), "# repo\n").expect("write");
+        run_git(repo.path(), &["add", "README.md"]);
+        run_git(repo.path(), &["commit", "-m", "before the api existed"]);
+
+        let mut contract = surface(contract_at("payments", "api/openapi.yaml", "unused"));
+        contract.baseline = Some(Baseline::Rev {
+            rev: "HEAD".to_owned(),
+        });
+        let report = check(
+            repo.path(),
+            &config_of(vec![contract.clone()]),
+            &Scope::All,
+            &Options::default(),
+        );
+        assert!(
+            report
+                .findings
+                .iter()
+                .any(|finding| finding.rule_id == "contract-new"),
+            "{report:?}"
+        );
+        assert_eq!(lint_rules(&report), vec!["operation-id-duplicate"]);
+
+        // And suppressible, like every finding on the gated path.
+        contract.allow = vec![crate::config::Suppression {
+            rule: "operation-id-duplicate".to_owned(),
+            endpoint: None,
+            field: None,
+            reason: "two read models, one SDK method, by design".to_owned(),
+            expires: None,
+        }];
+        let report = check(
+            repo.path(),
+            &config_of(vec![contract]),
+            &Scope::All,
+            &Options::default(),
+        );
+        assert_eq!(lint_rules(&report), Vec::<&str>::new(), "{report:?}");
+    }
+
+    #[test]
+    fn an_unconfigured_baseline_is_not_linted() {
+        let repo = repo_with(&[("api/openapi.yaml", DUPLICATE_OPERATION_ID)]);
+        let mut contract = surface(contract_at("payments", "api/openapi.yaml", "unused"));
+        contract.baseline = None;
+
+        let report = check(
+            repo.path(),
+            &config_of(vec![contract]),
+            &Scope::All,
+            &Options::default(),
+        );
+        assert_eq!(lint_rules(&report), Vec::<&str>::new(), "{report:?}");
+        assert_eq!(report.exit_code(Severity::Error), 0);
     }
 
     /// A shared schema is part of the contract, so the baseline's copy of it

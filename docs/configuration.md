@@ -163,19 +163,20 @@ every other rule. Style rules, such as naming conventions or missing
 descriptions, remain out of scope. The reasoning is in
 [design/07-structural-lint.md](../design/07-structural-lint.md).
 
-Know where they run before relying on them:
+They follow the same ratchet as the compatibility rules:
 
-- **They report what is in the file, not what the change added.** A
-  structural defect already in the baseline is reported on every check of
-  that contract. Fix it, or suppress it with a reason, before turning the
-  check on in a hook.
-- **They run only when there is a baseline to compare with.** A contract
-  reported as `contract-new` or `baseline-unconfigured` is not checked
-  structurally.
-- **They run in `brake check`, `brake analyze`, `brake diff` and the MCP
-  `check_repository` tool.** The MCP `check_change` and `compare_contracts`
-  tools, and the library's `brake::compare` / `brake::evaluate`, do not run
-  them.
+- **They report what the change added, not what was already there.** A
+  structural defect already in the baseline fails no commit. A repository
+  with old defects can turn the hook on today, and the defects are reported
+  the moment a change adds another.
+- **A new contract is checked in full.** When a contract is absent from the
+  baseline (`contract-new`), every defect in it is one the change introduces.
+- **A contract with no baseline configured is not checked.**
+  `baseline-unconfigured` means the contract has not opted in to gating, so
+  nothing fails for it.
+- **The commit hook and the agent agree.** `brake check`, `brake analyze`,
+  `brake diff` and all the MCP tools run them. From the library, call
+  `brake::lint` alongside `brake::compare` and `brake::evaluate`.
 - **The enum checks read OpenAPI schemas only.** An AsyncAPI payload or an MCP
   tool schema is not checked for them.
 
