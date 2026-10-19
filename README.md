@@ -12,7 +12,8 @@
 
 **A brake on breaking API changes.** It compares an API contract against its
 previous version and fails the commit when the change would break a consumer —
-across OpenAPI, protobuf, GraphQL and AsyncAPI, from one CLI and one ruleset.
+across OpenAPI, protobuf, GraphQL, AsyncAPI and MCP tool lists, from one CLI and
+one ruleset.
 
 **It never makes a network request, never runs your service, and never needs a
 toolchain.** `brake` works on a fresh checkout with nothing installed, by
@@ -79,8 +80,8 @@ Pronounced like the thing it prevents.
 
 ## Status
 
-**Working.** OpenAPI 3.0/3.1, protobuf 3, GraphQL SDL and AsyncAPI 2.x/3.x are
-all ingested and compared through one ruleset; `check`, `analyze`, `diff`,
+**Working.** OpenAPI 3.0/3.1, protobuf 3, GraphQL SDL, AsyncAPI 2.x/3.x and
+MCP `tools/list` snapshots are all ingested and compared through one ruleset; `check`, `analyze`, `diff`,
 `explain` and `consumers` are implemented, with text, JSON, SARIF, GitHub
 workflow-command and GitLab Code Quality output.
 
@@ -306,7 +307,7 @@ See [docs/ci.md](docs/ci.md#output-for-ci).
 | --- | --- |
 | [Getting started](docs/getting-started.md) | Install, `brake init`, your first finding, and how to read one |
 | [Configuration](docs/configuration.md) | Every key in `brake.toml`: contracts, baselines, levels, suppressions, drift |
-| [Contract formats](docs/formats.md) | What each of the four ingesters models, and contracts that span several files |
+| [Contract formats](docs/formats.md) | What each of the five ingesters models, and contracts that span several files |
 | [Consumer demand](docs/consumers.md) | Pacts, GraphQL operations and manifests, so a finding names *who* it breaks |
 | [CI and hooks](docs/ci.md) | The pre-commit hook, GitHub Actions, SARIF, and the exit-code split |
 | [MCP server](docs/mcp.md) | The tool surface an agent sees, and the trust posture that constrains it |
@@ -334,7 +335,11 @@ regenerate after a refactor.
 ## What it is not
 
 - **Not a spec linter.** Style rules are `vacuum` and `spectral`'s job. If a
-  rule cannot break a consumer, it is out of scope.
+  rule cannot break a consumer, it is out of scope. Four structural checks are
+  the exception, because each breaks generated clients even with no previous
+  version to compare against: a duplicate `operationId`, an undeclared path
+  parameter, an enum value that contradicts its `type`, and a duplicated enum
+  value. See [Structural checks](docs/configuration.md#structural-checks).
 - **Not a runtime contract tester.** `brake` reads a pact; it never replays one.
   Provider verification needs both sides running, and `brake` never issues a
   request.
@@ -360,6 +365,9 @@ brake = { version = "2026.8", default-features = false }
 
 `default-features = false` drops `clap`, colour, and terminal handling, leaving
 ingest, comparison, and the rule catalogue.
+
+`brake::compare` and `brake::evaluate` cover the compatibility rules. Call
+`brake::lint` as well to get the four structural checks `brake check` runs.
 
 ## Licence
 

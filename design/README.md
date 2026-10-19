@@ -19,6 +19,8 @@ list of things deliberately not being built.
 | [04-mcp-interface.md](04-mcp-interface.md) | The MCP server: the same ruleset consulted at edit time by a coding agent, its tool surface, and the trust posture that constrains it |
 | [05-consumer-demand.md](05-consumer-demand.md) | Consumer declarations — pact files, GraphQL operations, native manifests — as a third input, so a finding can name who it breaks |
 | [06-architectural-evolution.md](06-architectural-evolution.md) | Architectural evolution: schema evolution depth, event contracts, hermetic multi-document bundling, subtyping lattice, CI integration |
+| [07-structural-lint.md](07-structural-lint.md) | Structural lint rules: why four consumer-breaking contract defects belong in brake despite the "not a spec linter" ruling |
+| [08-mcp-tool-contracts.md](08-mcp-tool-contracts.md) | MCP tool lists as a fifth format: a committed `tools/list` snapshot, mapped onto the existing model, and who it actually protects |
 
 ## Status
 
@@ -33,6 +35,13 @@ M12–M15, consumer demand in [05-consumer-demand.md](05-consumer-demand.md), ar
 built: pact, GraphQL-operation and native-manifest declarations, the join, the
 consumer rules, `affects` on every finding, the three policies, `brake
 consumers` and `who_consumes` over MCP.
+
+The four structural lint rules in [07-structural-lint.md](07-structural-lint.md)
+are built. They report only defects the baseline does not already have, check
+a new contract in full, and run on every CLI and MCP path.
+
+The MCP tool-list ingester in [08-mcp-tool-contracts.md](08-mcp-tool-contracts.md)
+is built, and adds no rules.
 
 [06-architectural-evolution.md](06-architectural-evolution.md) is a **roadmap**,
 and only partly built. Landed from it: the AsyncAPI ingester, hermetic

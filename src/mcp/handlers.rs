@@ -513,7 +513,13 @@ fn evaluate_pair(
     level: Compatibility,
 ) -> Vec<Finding> {
     let changes = crate::compare(base, head);
-    crate::evaluate(&changes, contract, level)
+    let mut findings = crate::evaluate(&changes, contract, level);
+    // The structural checks `brake check` runs. Without them an agent was told
+    // a draft was clean that the commit hook then rejected.
+    findings.extend(crate::lint(base, head, contract, level));
+    findings.sort();
+    findings.dedup();
+    findings
 }
 
 /// The response shape of `design/04-mcp-interface.md` §3.1.
@@ -697,8 +703,9 @@ fn parse_format(input: &str) -> Result<ContractFormat, ToolFailure> {
         "proto" | "protobuf" => Ok(ContractFormat::Proto),
         "graphql" => Ok(ContractFormat::Graphql),
         "asyncapi" => Ok(ContractFormat::Asyncapi),
+        "mcp" => Ok(ContractFormat::Mcp),
         other => Err(ToolFailure::new(format!(
-            "unknown format `{other}`; expected one of: openapi, proto, graphql, asyncapi"
+            "unknown format `{other}`; expected one of: openapi, proto, graphql, asyncapi, mcp"
         ))),
     }
 }
@@ -723,6 +730,7 @@ pub fn format_name(format: ContractFormat) -> &'static str {
         ContractFormat::Proto => "proto",
         ContractFormat::Graphql => "graphql",
         ContractFormat::Asyncapi => "asyncapi",
+        ContractFormat::Mcp => "mcp",
     }
 }
 
@@ -768,7 +776,7 @@ fn pretty(value: &Value) -> String {
 pub fn tool_schemas() -> BTreeMap<&'static str, Value> {
     let format = json!({
         "type": "string",
-        "enum": ["openapi", "proto", "graphql", "asyncapi"],
+        "enum": ["openapi", "proto", "graphql", "asyncapi", "mcp"],
         "description": "The contract format of the documents supplied.",
     });
     let compatibility = json!({

@@ -21,7 +21,7 @@ brake init               # writes brake.toml
 
 `init` identifies contracts by **parsing** them, not by filename, so a workflow
 called `api-tests.yaml` is not mistaken for an API. It recognises OpenAPI,
-protobuf, GraphQL SDL and AsyncAPI. Read the output with the
+protobuf, GraphQL SDL, AsyncAPI and MCP `tools/list` snapshots. Read the output with the
 user before writing: it is their inventory of API surface, and it is often the
 first time anyone has seen it in one place.
 

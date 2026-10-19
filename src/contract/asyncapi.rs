@@ -107,6 +107,7 @@ pub fn ingest_with_resolver(
         endpoints: ingester.endpoints,
         security_schemes: BTreeMap::new(),
         unmodelled: ingester.unmodelled,
+        lint_candidates: Vec::new(),
     })
 }
 

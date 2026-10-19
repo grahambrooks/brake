@@ -36,6 +36,10 @@ Run `brake explain <rule-id>` to read any of this at the moment you are blocked 
 | [`security-removed`](#security-removed) | warning | `wire-json` | An endpoint lost a security requirement. |
 | [`removed-without-deprecation`](#removed-without-deprecation) | error | `wire-json` | Something was removed that was not marked deprecated in the baseline. |
 | [`deprecated-no-sunset`](#deprecated-no-sunset) | info | `wire-json` | An endpoint is deprecated with no `x-sunset` date. |
+| [`enum-type-mismatch`](#enum-type-mismatch) | error | `wire` | An enum value does not match the schema's declared type. |
+| [`enum-duplicate-value`](#enum-duplicate-value) | warning | `wire` | An enum array contains the same value more than once. |
+| [`operation-id-duplicate`](#operation-id-duplicate) | error | `surface` | Two or more operations share the same operationId. |
+| [`path-param-undeclared`](#path-param-undeclared) | error | `surface` | A path template uses {param} but no matching parameter object is declared. |
 | [`contract-unreachable`](#contract-unreachable) | error | `wire` | The configured contract source could not be read or parsed. |
 | [`contract-partial`](#contract-partial) | warning | `wire` | A compared path contains a construct brake cannot model. |
 | [`stale-allow`](#stale-allow) | error | `wire` | A suppression matches nothing. |
@@ -450,6 +454,38 @@ A deprecation with no date is a deprecation that never ends, and consumers corre
 
 - **`add-sunset-date`** — give the field an `x-sunset` date, and announce it, so the eventual removal is something consumers were told about
   *Costs:* you are committing to a date
+
+## enum-type-mismatch
+
+**An enum value does not match the schema's declared type.**
+
+Severity `error`, fires from `wire` upward.
+
+A client generated from this schema will deserialise the offending value into the wrong type — or fail to deserialise it at all — whenever the API returns it. The spec parses without error, so this is invisible to a validator that only checks syntax. It is only visible when a consumer tries to use the value at runtime, at which point the crash is in the consumer, not the API.
+
+## enum-duplicate-value
+
+**An enum array contains the same value more than once.**
+
+Severity `warning`, fires from `wire` upward.
+
+Code generators for some languages deduplicate enum members silently: the generated type has fewer values than the contract implies. A consumer whose generated enum is missing a value cannot handle an API response that includes it. The impact is generator-dependent, which is why this is a warning rather than an error.
+
+## operation-id-duplicate
+
+**Two or more operations share the same operationId.**
+
+Severity `error`, fires from `surface` upward.
+
+Code generators derive method names from operationId. A duplicate produces a compile-time collision in every generated SDK — a guaranteed consumer breakage for any team using code generation, which is the dominant consumption pattern for OpenAPI-described APIs. Nothing breaks on the wire; the break is entirely in the generated client surface, which is why this fires at `surface` level rather than `wire`.
+
+## path-param-undeclared
+
+**A path template uses {param} but no matching parameter object is declared.**
+
+Severity `error`, fires from `surface` upward.
+
+SDK generators that follow the spec produce a method whose signature is missing the required argument. Clients compiled against the generated SDK call the endpoint with a literal `{param}` in the URL, or fail to compile, depending on the language. Nothing breaks on the wire when a server fills in a default or ignores the template fragment; the break is in any generated client that tries to call the operation correctly.
 
 ## contract-unreachable
 

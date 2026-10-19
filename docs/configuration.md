@@ -25,7 +25,7 @@ baseline = { git-merge-base = "origin/main" }
 
 [[contract]]
 name = "payments"
-format = "openapi"                        # openapi | proto | graphql | asyncapi
+format = "openapi"                        # openapi | proto | graphql | asyncapi | mcp
 source = "api/payments-openapi.yaml"
 compatibility = "surface"                 # optional, overrides [defaults]
 baseline = { latest-tag = "v*" }          # optional, overrides [defaults]
@@ -67,7 +67,7 @@ it — see [Two contracts over one artifact](#two-contracts-over-one-artifact).
 | Key | Required | Meaning |
 | --- | --- | --- |
 | `name` | yes | How the contract is referred to in findings and by `--contract` |
-| `format` | yes | `openapi`, `proto`, `graphql` or `asyncapi` |
+| `format` | yes | `openapi`, `proto`, `graphql`, `asyncapi` or `mcp` |
 | `source` | yes | Repository-relative path to the head document |
 | `compatibility` | no | Overrides `[defaults]` for this contract |
 | `baseline` | no | Overrides `[defaults]` for this contract |
@@ -138,12 +138,47 @@ thing a human has to read and dismiss.
 
 | Level | Adds | Use when |
 | --- | --- | --- |
-| `wire` | Endpoint or method removal, newly-required input, type narrowing, protobuf renumbering | Internal services, tolerant readers |
+| `wire` | Endpoint or method removal, newly-required input, type narrowing, protobuf renumbering, an enum value that contradicts its `type` | Internal services, tolerant readers |
 | `wire-json` | Field rename, response field removal, status-code removal, security strengthening | **Default.** Most HTTP/JSON APIs |
-| `surface` | Anything that breaks generated client code — `operationId` change, path-parameter rename | Consumers generate clients |
+| `surface` | Anything that breaks generated client code — `operationId` change or duplicate, path-parameter rename, an undeclared path parameter | Consumers generate clients |
 | `strict` | Any non-additive change at all, including new optional fields | Frozen public APIs under contract |
 
 Which rules belong to which level is in the [rule catalogue](rules.md).
+
+## Structural checks
+
+Four rules look at the head contract on its own, with no baseline involved.
+Each is a defect that breaks a consumer even when there is no previous version
+to compare against:
+
+| Rule | Severity | Level | What breaks |
+| --- | --- | --- | --- |
+| `enum-type-mismatch` | error | `wire` | A generated client fails to deserialise the value that contradicts the enum's `type` |
+| `enum-duplicate-value` | warning | `wire` | Generators that deduplicate produce a type with fewer members than the contract |
+| `operation-id-duplicate` | error | `surface` | Two generated methods with the same name, so the SDK does not compile |
+| `path-param-undeclared` | error | `surface` | The generated method has no argument for `{param}` in the path |
+
+They use the same catalogue, levels and `[[contract.allow]]` suppressions as
+every other rule. Style rules, such as naming conventions or missing
+descriptions, remain out of scope. The reasoning is in
+[design/07-structural-lint.md](../design/07-structural-lint.md).
+
+They follow the same ratchet as the compatibility rules:
+
+- **They report what the change added, not what was already there.** A
+  structural defect already in the baseline fails no commit. A repository
+  with old defects can turn the hook on today, and the defects are reported
+  the moment a change adds another.
+- **A new contract is checked in full.** When a contract is absent from the
+  baseline (`contract-new`), every defect in it is one the change introduces.
+- **A contract with no baseline configured is not checked.**
+  `baseline-unconfigured` means the contract has not opted in to gating, so
+  nothing fails for it.
+- **The commit hook and the agent agree.** `brake check`, `brake analyze`,
+  `brake diff` and all the MCP tools run them. From the library, call
+  `brake::lint` alongside `brake::compare` and `brake::evaluate`.
+- **The enum checks read OpenAPI schemas only.** An AsyncAPI payload or an MCP
+  tool schema is not checked for them.
 
 ## Suppressions — `[[contract.allow]]`
 

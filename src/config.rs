@@ -87,6 +87,8 @@ pub enum ContractFormat {
     Proto,
     Graphql,
     Asyncapi,
+    /// A snapshot of an MCP server's `tools/list` result.
+    Mcp,
 }
 
 /// A consumer declaration format — `design/05-consumer-demand.md` §2.

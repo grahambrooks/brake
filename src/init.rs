@@ -198,6 +198,12 @@ pub fn identify(path: &Path) -> Option<ContractFormat> {
         Some(ContractFormat::Openapi)
     } else if crate::parse(ContractFormat::Asyncapi, &source, &bytes).is_ok() {
         Some(ContractFormat::Asyncapi)
+    } else if crate::parse(ContractFormat::Mcp, &source, &bytes)
+        // `tools` is a common key. A list with no tool in it is some other
+        // file's list, not an MCP server's.
+        .is_ok_and(|contract| !contract.endpoints.is_empty())
+    {
+        Some(ContractFormat::Mcp)
     } else {
         None
     }
@@ -218,6 +224,8 @@ fn is_baseline(relative: &str) -> bool {
 const UNINFORMATIVE: &[&str] = &[
     "openapi",
     "asyncapi",
+    "mcp",
+    "tools",
     "swagger",
     "schema",
     "spec",
@@ -277,6 +285,10 @@ fn clean(raw: &str) -> String {
         "_openapi",
         "-asyncapi",
         "_asyncapi",
+        "-tools",
+        "_tools",
+        "-mcp",
+        "_mcp",
         "-swagger",
         "_swagger",
         "-schema",
@@ -366,6 +378,7 @@ pub fn format_name(format: ContractFormat) -> &'static str {
         ContractFormat::Proto => "proto",
         ContractFormat::Graphql => "graphql",
         ContractFormat::Asyncapi => "asyncapi",
+        ContractFormat::Mcp => "mcp",
     }
 }
 
@@ -503,6 +516,25 @@ service Events { rpc Send(Ping) returns (Ping); }
             vec!["api/openapi.yaml"],
             "only the file an ingester can actually read is a contract"
         );
+    }
+
+    #[test]
+    fn finds_an_mcp_tool_snapshot_but_not_any_file_with_a_tools_key() {
+        let repo = repo(&[
+            (
+                "mcp/github-tools.json",
+                r#"{"tools": [{"name": "search", "inputSchema": {"type": "object"}}]}"#,
+            ),
+            // `tools` is a common key; neither of these is an MCP server.
+            ("devbox.json", r#"{"tools": ["eslint", "prettier"]}"#),
+            ("empty.json", r#"{"tools": []}"#),
+        ]);
+
+        let discovery = discover(repo.path());
+        assert_eq!(names(&discovery), vec!["mcp/github-tools.json"]);
+        assert_eq!(discovery.contracts[0].format, ContractFormat::Mcp);
+        assert_eq!(contract_name("mcp/github-tools.json"), "github");
+        assert_eq!(contract_name("github-mcp/tools.json"), "github");
     }
 
     #[test]

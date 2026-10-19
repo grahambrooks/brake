@@ -140,6 +140,9 @@ cut on purpose.
 - **Not a spec linter.** Style rules — operation IDs must be camelCase, every
   response needs an example — are `vacuum` and `spectral`'s job. If a rule
   cannot break a consumer, it does not belong here.
+  [07-structural-lint.md](07-structural-lint.md) admits four structural rules
+  under this test, because each breaks generated clients with no baseline to
+  compare against. The exclusion still binds everything else.
 - **Not a runtime contract tester.** `brake` never issues a request, and never
   verifies an implementation against anything. Consumer *declarations* are a
   different matter and were the wrong thing to exclude here: a pact is a JSON
