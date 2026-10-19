@@ -1,0 +1,41 @@
+.junie/skills/api-compatibility/SKILL.md
+  s_a72321dcd11d43::t_f8bfa00330a765 128-131
+docs/README.md
+  s_a72321dcd11d43::t_f8bfa00330a765 6
+CLAUDE.md
+  s_a72321dcd11d43::t_f8bfa00330a765 31-35,111-113
+.claude/skills/api-compatibility/SKILL.md
+  s_a72321dcd11d43::t_f8bfa00330a765 128-131
+docs/configuration.md
+  s_a72321dcd11d43::t_f8bfa00330a765 141,143,148-180
+  s_a72321dcd11d43::t_a4be49aa8f3bd7 181
+docs/formats.md
+  s_a72321dcd11d43::t_f8bfa00330a765 22,41-44
+  s_a72321dcd11d43::t_f3ece9ad46fa1c 45
+design/01-thesis.md
+  s_a72321dcd11d43::t_f8bfa00330a765 143-145
+design/README.md
+  s_a72321dcd11d43::t_f8bfa00330a765 39-42
+AGENTS.md
+  s_a72321dcd11d43::t_f8bfa00330a765 33-37,113-115
+docs/mcp.md
+  s_a72321dcd11d43::t_f8bfa00330a765 75-78
+README.md
+  s_a72321dcd11d43::t_f8bfa00330a765 310,338-342
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "42ea974446950df1654b5f76011822f61071bc67",
+  "prompts": {},
+  "sessions": {
+    "s_a72321dcd11d43": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "93f3f613-4242-4cd2-ae35-ed6aa76bb44f",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Graham Brooks <graham@grahambrooks.com>"
+    }
+  }
+}
