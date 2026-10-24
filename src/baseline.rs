@@ -278,7 +278,7 @@ fn resolve_latest_tag(
         // break.
         let is_ancestor = repo
             .merge_base(head.detach(), *id)
-            .is_ok_and(|base| base.detach() == *id);
+            .is_ok_and(|base| base.is_some_and(|base| base.detach() == *id));
         if is_ancestor {
             return read_source_at(&repo, contract, *id, name, &format!("tag:{name}"));
         }
@@ -314,7 +314,8 @@ fn resolve_merge_base(
         })?;
     let merge_base = repo
         .merge_base(head.detach(), target.detach())
-        .map_err(|error| describe(error.to_string()))?;
+        .map_err(|error| describe(error.to_string()))?
+        .ok_or_else(|| describe("HEAD and the reference share no history".to_owned()))?;
 
     read_source_at(
         &repo,
