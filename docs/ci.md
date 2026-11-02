@@ -20,7 +20,7 @@ regenerate after a refactor. That is the ratchet.
 # .pre-commit-config.yaml, in your repository
 repos:
   - repo: https://github.com/grahambrooks/brake
-    rev: v2026.8.4
+    rev: v2026.11.1
     hooks:
       - id: brake
 ```
@@ -71,10 +71,10 @@ jobs:
       - name: Install brake
         run: |
           set -euo pipefail
-          version=v2026.8.4
+          version=v2026.11.1
           name="brake-${version}-x86_64-unknown-linux-gnu"
           curl -sSfL "https://github.com/grahambrooks/brake/releases/download/${version}/${name}.tar.gz" \
-            | sudo tar -xz -C /usr/local/bin --strip-components=1 "${name}/brake"
+            | sudo tar -xz -C /usr/local/bin brake
       - run: brake check --since origin/${{ github.base_ref }} --format text
 ```
 
@@ -97,10 +97,10 @@ reported as one.
       - name: Install brake
         run: |
           set -euo pipefail
-          version=v2026.8.4
+          version=v2026.11.1
           name="brake-${version}-x86_64-unknown-linux-gnu"
           curl -sSfL "https://github.com/grahambrooks/brake/releases/download/${version}/${name}.tar.gz" \
-            | sudo tar -xz -C /usr/local/bin --strip-components=1 "${name}/brake"
+            | sudo tar -xz -C /usr/local/bin brake
       - run: brake analyze . --format text
 ```
 

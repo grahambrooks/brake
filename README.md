@@ -187,7 +187,7 @@ As a pre-commit hook, in another repository:
 ```yaml
 repos:
   - repo: https://github.com/grahambrooks/brake
-    rev: v2026.8.4
+    rev: v2026.11.1
     hooks:
       - id: brake
 ```
