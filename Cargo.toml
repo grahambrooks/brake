@@ -12,7 +12,7 @@ name = "brake"
 # tag exists. No leading zeros, because 2026.08.1 is not valid SemVer and cargo
 # requires SemVer. The tag is the version: `make release` pushes it, and the
 # release workflow's PR sets this field. Never edit it by hand.
-version = "2026.11.1"
+version = "2026.11.3"
 edition = "2024"
 license = "MIT"
 description = "A brake on breaking API changes. Checks OpenAPI, protobuf and GraphQL contracts for backward compatibility, hermetically."
