@@ -1,0 +1,29 @@
+.github/workflows/build.yml
+  s_3af201839d09d6::t_6552ea5e765bae 7-8,14-16,31,33-34,40-41,44,47,51-63,65-67,74,88,110,112,121,123
+AGENTS.md
+  s_3af201839d09d6::t_78acc9f58e0a10 252-253
+CLAUDE.md
+  s_3af201839d09d6::t_1fe4a28b3d1b78 250-251
+Cargo.toml
+  s_3af201839d09d6::t_6116dee2643b96 26
+rust-toolchain.toml
+  s_3af201839d09d6::t_8bb8e6951693be 8,11
+tests/toolchain_pins.rs
+  s_3af201839d09d6::t_e63314a711d80c 1,4-5,10-15,39-40,42-43,50-51,57,60-63,67-73,75-94
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "7b0bf7e95abf4ae9d2aaa355abf4c34aeb400cfa",
+  "prompts": {},
+  "sessions": {
+    "s_3af201839d09d6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ca62a504-f3e7-484c-9e2d-47cfc6cd0491",
+        "model": "unknown"
+      },
+      "human_author": "Graham Brooks <graham@grahambrooks.com>"
+    }
+  }
+}
