@@ -232,6 +232,25 @@ through `cmd` there, which does not expand `$VAR`. Check the run after pushing.
 
 `make check` must pass before every commit; the prek pre-push hook runs it too.
 
+## Publishing to crates.io (manual)
+
+Releases do not publish to crates.io: `.release.env` has `PUBLISH_CRATE=false`.
+A crates.io version can be yanked but never deleted or reused, so it is the one
+release step done by hand, after the release workflow has succeeded (GitHub
+Release, Homebrew formula PR). The tag's `Cargo.toml` still carries the previous
+version (the workflow stamps the tag's version at build time, and its release PR
+bumps `main` afterwards), so stamp it the same way the workflow does, from a
+clean checkout of the tag:
+
+```sh
+v=2026.11.3                                   # the released tag, without the "v"
+git worktree add --detach "../brake-v$v" "v$v" && cd "../brake-v$v"
+python3 scripts/release.py set-version "$v"   # Cargo.toml + brake's own entry in Cargo.lock
+cargo publish --locked --allow-dirty --dry-run
+cargo publish --locked --allow-dirty          # --allow-dirty: only the stamped version differs
+cd - && git worktree remove --force "../brake-v$v"
+```
+
 ## Testing
 
 - **Every rule needs a positive and a negative test.** It fires on the break,
@@ -251,7 +270,7 @@ through `cmd` there, which does not expand `$VAR`. Check the run after pushing.
 - CalVer `YYYY.M.D` (the release date; the last number is bumped while that tag
   exists). The tag is the version: `make release` tags `origin/main` and pushes
   only the tag; the release workflow's PR bumps `Cargo.toml`. Never edit the
-  version by hand.
+  version by hand. crates.io publishing is manual (see above).
 - Conventional Commits (`feat(compare): ...`, `fix(openapi): ...`).
 - MSRV tracks latest stable and is pinned in `rust-toolchain.toml`. Keep
   `channel` identical to `rust-version` in `Cargo.toml` (CI fails if they drift).
