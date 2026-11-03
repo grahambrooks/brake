@@ -191,8 +191,8 @@ fn sarif_output_for_a_response_field_removal() {
         serde_json::from_str(&sarif::render(&report)).expect("valid SARIF");
 
     // SARIF reports the tool version, and it should. Pinning it in a snapshot
-    // means `make release` — which bumps the version *after* running the gate
-    // — leaves CI red on the release commit. Redacted here so the snapshot
+    // means the release PR — which bumps the version *after* the gate ran on
+    // the tagged commit — leaves CI red on main. Redacted here so the snapshot
     // covers the shape, and asserted separately so the field is still checked.
     let driver = &mut value["runs"][0]["tool"]["driver"];
     assert_eq!(driver["version"], brake::VERSION);
@@ -247,14 +247,14 @@ fn snapshot_files() -> Vec<PathBuf> {
 /// Nothing else may pin the version either.
 ///
 /// A snapshot that embeds it is a release-time landmine: it passes when the
-/// gate runs and fails after the bump, on a commit already tagged and pushed.
+/// gate runs on the tagged commit and fails after the release PR's bump.
 #[test]
 fn no_snapshot_embeds_the_crate_version() {
     for path in snapshot_files() {
         let body = fs::read_to_string(&path).expect("read snapshot");
         assert!(
             !body.contains(brake::VERSION),
-            "{} pins the crate version, so the next `make release` will break it",
+            "{} pins the crate version, so the next release's version bump will break it",
             path.display()
         );
     }

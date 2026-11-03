@@ -8,10 +8,10 @@
 
 [package]
 name = "brake"
-# CalVer, YYYY.M.MICRO, committed rather than injected — MICRO counts the
-# releases already cut this month. The month carries no leading zero because
-# 2026.08.0 is not valid SemVer and cargo requires SemVer. Bump with
-# `make release`, never by hand.
+# CalVer, YYYY.M.D: the release date, with the last number bumped while that
+# tag exists. No leading zeros, because 2026.08.1 is not valid SemVer and cargo
+# requires SemVer. The tag is the version: `make release` pushes it, and the
+# release workflow's PR sets this field. Never edit it by hand.
 version = "2026.11.1"
 edition = "2024"
 license = "MIT"

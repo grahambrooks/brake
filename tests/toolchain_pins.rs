@@ -96,16 +96,20 @@ fn the_msrv_job_builds_with_the_declared_floor() {
 
 /// The next release version must never be one already released.
 ///
-/// `MICRO` used to be the *count* of this month's tags, which assumes none is
-/// ever deleted or skipped. Deleting `v2026.8.2` — a tag whose release failed
-/// and published nothing — made `make version` report `2026.8.3`, a version
-/// already on crates.io. The only thing between that and a bad publish was
-/// `release-guard` refusing with a message about a tag existing for reasons
-/// nobody would remember.
+/// The version used to be the *count* of this month's tags, which assumes
+/// none is ever deleted or skipped. Deleting `v2026.8.2` — a tag whose release
+/// failed and published nothing — made the next version `2026.8.3`, a version
+/// already on crates.io. `make release-version` (release.mk) now starts from
+/// today's date and steps past every existing tag; this holds it to that.
+///
+/// It fetches tags from origin first, so it is skipped (passes vacuously)
+/// offline or without `make`.
 #[test]
 fn the_next_version_is_not_one_that_is_already_tagged() {
+    // -s and --no-print-directory: under `make check` this is a sub-make,
+    // which would otherwise wrap the version in "Entering directory" lines.
     let next = std::process::Command::new("make")
-        .arg("version")
+        .args(["-s", "--no-print-directory", "release-version"])
         .current_dir(env!("CARGO_MANIFEST_DIR"))
         .output();
 
@@ -116,7 +120,7 @@ fn the_next_version_is_not_one_that_is_already_tagged() {
         return;
     }
     let next = String::from_utf8_lossy(&output.stdout).trim().to_owned();
-    assert!(!next.is_empty(), "`make version` printed nothing");
+    assert!(!next.is_empty(), "`make release-version` printed nothing");
 
     let tags = std::process::Command::new("git")
         .args(["tag", "-l"])
@@ -129,8 +133,8 @@ fn the_next_version_is_not_one_that_is_already_tagged() {
         .collect();
 
     assert!(
-        !tags.contains(&format!("v{next}")),
-        "`make version` says {next}, which is already tagged — a release would \
+        !tags.contains(&format!("v{next}")) && !tags.contains(&next),
+        "`make release-version` says {next}, which is already tagged — a release would \
          either be refused or, worse, reuse a published version"
     );
 }

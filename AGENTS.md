@@ -207,12 +207,14 @@ AGENTS.md          Generated from CLAUDE.md by `make agents`
 ## Commands
 
 ```sh
-make check          # fmt, clippy -D warnings, tests — the pre-commit gate
+make check          # fmt, clippy -D warnings, tests — the gate, as CI's lint and test jobs
+make hooks          # install the prek git hooks: fast checks on commit, make check on push
 make build
 make test
 make docs           # regenerate docs/rules.md from the catalogue
 make agents         # regenerate AGENTS.md and .junie/skills from CLAUDE.md
 make self-check     # run brake against its own fixture contract
+make release-dry    # what `make release` would tag (it pushes a tag; nothing is bumped)
 cargo run -- init            # scaffold brake.toml by parsing what is there
 cargo run -- check api/openapi.yaml
 cargo run -- consumers               # who uses what, non-gating
@@ -228,7 +230,7 @@ check. A green `make check` on one machine is necessary, not sufficient: the
 Windows `test` job stayed red for a while because `--drift` runs its command
 through `cmd` there, which does not expand `$VAR`. Check the run after pushing.
 
-`make check` must pass before every commit.
+`make check` must pass before every commit; the prek pre-push hook runs it too.
 
 ## Testing
 
@@ -246,8 +248,10 @@ through `cmd` there, which does not expand `$VAR`. Check the run after pushing.
 ## Conventions
 
 - Trunk-based: commit directly to `main`.
-- CalVer `YYYY.M.MICRO`, committed in `Cargo.toml`, bumped by `make release`.
-  Never edit the version by hand.
+- CalVer `YYYY.M.D` (the release date; the last number is bumped while that tag
+  exists). The tag is the version: `make release` tags `origin/main` and pushes
+  only the tag; the release workflow's PR bumps `Cargo.toml`. Never edit the
+  version by hand.
 - Conventional Commits (`feat(compare): ...`, `fix(openapi): ...`).
 - MSRV tracks latest stable and is pinned in `rust-toolchain.toml`. Keep
   `channel` identical to `rust-version` in `Cargo.toml` (CI fails if they drift).

@@ -370,9 +370,10 @@ every laptop and fails in CI, which checks out a detached HEAD.
 Set up at M0, not later.
 
 - **Trunk-based**, committing directly to `main`
-- **CalVer** `YYYY.M.MICRO`, committed in `Cargo.toml`, bumped by `make release`
+- **CalVer** `YYYY.M.D`, committed in `Cargo.toml` by the release workflow's PR;
+  `make release` only pushes the tag
 - **Binaries from the standard release-kit v2 workflow**, not `dist`. The tag
-  (`vYYYY.M.N`) is the version; `.github/workflows/release.yml` and
+  (`vYYYY.M.D`) is the version; `.github/workflows/release.yml` and
   `scripts/release.py` are byte-identical across grahambrooks' Rust tools and
   everything specific to brake lives in `.release.env`. Five targets: macOS on
   both architectures, Linux on both, and Windows x86_64, archived as
