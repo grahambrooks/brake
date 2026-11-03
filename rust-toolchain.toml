@@ -5,8 +5,8 @@
 # of six runners because that image shipped a rustc one release behind the
 # declared `rust-version`, and cargo refused before compiling anything.
 #
-# Keep `channel` in step with `rust-version` in Cargo.toml.
+# Keep `channel` identical to `rust-version` in Cargo.toml; CI fails if they drift.
 
 [toolchain]
-channel = "1.99"
+channel = "1.99.1"
 components = ["rustfmt", "clippy"]

@@ -1,15 +1,18 @@
-//! The Rust version is declared in three places, and they must agree.
+//! The Rust version is declared in two places, and they must agree exactly.
 //!
 //! `CLAUDE.md` states the convention — "MSRV tracks latest stable and is
-//! pinned in `rust-toolchain.toml`. Keep it in step with `rust-version` in
-//! `Cargo.toml`" — and a convention nothing checks is one that drifts. It
+//! pinned in `rust-toolchain.toml`. Keep `channel` identical to `rust-version`
+//! in `Cargo.toml`" — and a convention nothing checks is one that drifts. It
 //! already did: a dependency-bot PR moved `Cargo.toml` and
 //! `rust-toolchain.toml` to 1.98 and left the CI job verifying 1.97, so the
 //! job was testing a floor the project no longer declared.
 //!
-//! Compared on `major.minor`, because the three spell the same version
-//! differently by convention: `1.98.0` in a manifest, `1.98` in a toolchain
-//! file and an action pin.
+//! The `msrv` CI job no longer carries a third copy of the version. It reads
+//! the floor from these two files (failing if they differ) and builds with
+//! `cargo +<floor>`. A bare `cargo` there would be overridden by
+//! `rust-toolchain.toml`, so the job would pass without testing anything —
+//! which is what the earlier `dtolnay/rust-toolchain@1.9x` + `cargo check`
+//! job did.
 
 use std::fs;
 use std::path::PathBuf;
@@ -17,16 +20,6 @@ use std::path::PathBuf;
 fn read(relative: &str) -> String {
     let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(relative);
     fs::read_to_string(&path).unwrap_or_else(|error| panic!("read {relative}: {error}"))
-}
-
-/// `1.98.0` and `1.98` both reduce to `1.98`.
-fn major_minor(version: &str) -> String {
-    version
-        .trim()
-        .split('.')
-        .take(2)
-        .collect::<Vec<_>>()
-        .join(".")
 }
 
 /// The value of a `key = "value"` line, ignoring comments that mention the key.
@@ -43,53 +36,62 @@ fn toml_string(source: &str, key: &str) -> String {
 
 #[test]
 fn the_declared_rust_version_agrees_everywhere_it_is_written() {
-    let manifest = major_minor(&toml_string(&read("Cargo.toml"), "rust-version"));
-    let toolchain = major_minor(&toml_string(&read("rust-toolchain.toml"), "channel"));
+    let manifest = toml_string(&read("Cargo.toml"), "rust-version");
+    let toolchain = toml_string(&read("rust-toolchain.toml"), "channel");
 
-    // The CI job that actually proves the floor. A pin below the declared
-    // version tests something the project does not promise; a pin above it
-    // means the promise is untested.
-    //
-    // Read from the `msrv` job specifically. Scanning the whole file finds
-    // the first `rust-toolchain@stable` of another job instead, which is how
-    // the first version of this test passed against reintroduced drift.
-    let ci = major_minor(&msrv_pin());
-
+    // Exact, not `major.minor`: the CI job compares the strings verbatim, and
+    // `1.99` in a toolchain file means "latest 1.99.x", not the declared floor.
     assert_eq!(
         manifest, toolchain,
         "Cargo.toml `rust-version` and rust-toolchain.toml `channel` disagree"
     );
-    assert_eq!(
-        manifest, ci,
-        "the MSRV CI job pins a different version from Cargo.toml `rust-version`"
-    );
 }
 
-/// The toolchain the `msrv` job installs.
-fn msrv_pin() -> String {
+/// The `msrv` job's block of the build workflow.
+fn msrv_job() -> String {
     let workflow = read(".github/workflows/build.yml");
     let block = workflow
         .split("\n  msrv:")
         .nth(1)
         .expect("the workflow has an `msrv` job");
-
+    // Up to the next job: a line indented by exactly two spaces.
     block
         .lines()
-        .find_map(|line| line.trim().strip_prefix("- uses: dtolnay/rust-toolchain@"))
-        .map(|version| version.trim().to_owned())
-        .expect("the msrv job pins a toolchain")
+        .skip(1)
+        .take_while(|line| !(line.starts_with("  ") && !line.starts_with("   ")))
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 #[test]
-fn the_msrv_job_pins_a_version_rather_than_stable() {
-    // Pinned to `stable`, the job proves nothing: it would pass on whatever
-    // the runner happened to install, which is what every other job already
-    // uses.
-    assert_ne!(
-        msrv_pin(),
-        "stable",
-        "the minimum-supported-version job must pin a version"
+fn the_msrv_job_builds_with_the_declared_floor() {
+    let job = msrv_job();
+
+    // The floor comes from the files above, so there is no third copy to drift.
+    assert!(
+        job.contains("rust-toolchain.toml") && job.contains("rust-version"),
+        "the msrv job must read the floor from Cargo.toml and rust-toolchain.toml"
     );
+    assert!(
+        !job.contains("dtolnay/rust-toolchain@"),
+        "the msrv job must not pin its own toolchain copy"
+    );
+
+    // Every cargo invocation must name the floor explicitly; a bare `cargo`
+    // is redirected by rust-toolchain.toml and proves nothing.
+    let cargo_runs: Vec<&str> = job
+        .lines()
+        .map(str::trim)
+        .filter_map(|line| line.strip_prefix("- run: "))
+        .filter(|run| run.starts_with("cargo"))
+        .collect();
+    assert!(!cargo_runs.is_empty(), "the msrv job runs cargo");
+    for run in cargo_runs {
+        assert!(
+            run.starts_with("cargo +${{ steps.floor.outputs.version }} "),
+            "msrv job runs `{run}` without `cargo +<floor>`"
+        );
+    }
 }
 
 /// The next release version must never be one already released.

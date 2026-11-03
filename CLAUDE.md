@@ -247,6 +247,6 @@ through `cmd` there, which does not expand `$VAR`. Check the run after pushing.
 - CalVer `YYYY.M.MICRO`, committed in `Cargo.toml`, bumped by `make release`.
   Never edit the version by hand.
 - Conventional Commits (`feat(compare): ...`, `fix(openapi): ...`).
-- MSRV tracks latest stable and is pinned in `rust-toolchain.toml`. Keep it in
-  step with `rust-version` in `Cargo.toml`.
+- MSRV tracks latest stable and is pinned in `rust-toolchain.toml`. Keep
+  `channel` identical to `rust-version` in `Cargo.toml` (CI fails if they drift).
 - `unsafe_code = "forbid"`.
