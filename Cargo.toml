@@ -17,13 +17,12 @@ edition = "2024"
 license = "MIT"
 description = "A brake on breaking API changes. Checks OpenAPI, protobuf and GraphQL contracts for backward compatibility, hermetically."
 repository = "https://github.com/grahambrooks/brake"
-homepage = "https://github.com/grahambrooks/brake"
 keywords = ["openapi", "compatibility", "breaking-changes", "api", "lint"]
 categories = ["development-tools", "command-line-utilities"]
 # Tracks latest stable, and is pinned a second time in rust-toolchain.toml so a
 # laptop, CI and a release runner all compile with the same compiler. Declaring
 # a floor nothing is tested at is worse than declaring an honest one.
-rust-version = "1.99.1"
+rust-version = "1.100.0"
 
 [lib]
 name = "brake"
@@ -62,21 +61,21 @@ mcp = ["cli", "dep:rmcp", "dep:tokio"]
 [dependencies]
 clap = { version = "4", features = ["derive"], optional = true }
 gix = "0.90.0"
-apollo-parser = "0.9.0-beta.0"
+apollo-parser = "0.9.0-beta.2"
 prost-types = "0.14"
 protox-parse = "0.10.0"
-saphyr = "0.3"
+saphyr = "0.4"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tempfile = "3"
 thiserror = "2"
-toml = "1.1"
-annotate-snippets = { version = "0.12.16", optional = true }
-rmcp = { version = "3.1.4", default-features = false, features = ["server", "transport-io", "macros"], optional = true }
-tokio = { version = "1.53.1", default-features = false, features = ["rt-multi-thread", "macros", "io-std", "sync"], optional = true }
+toml = "1.2"
+annotate-snippets = { version = "0.12.18", optional = true }
+rmcp = { version = "3.11.0", default-features = false, features = ["server", "transport-io", "macros"], optional = true }
+tokio = { version = "1.54.1", default-features = false, features = ["rt-multi-thread", "macros", "io-std", "sync"], optional = true }
 
 [dev-dependencies]
-insta = { version = "1.48.0", default-features = false }
+insta = { version = "1.49.0", default-features = false }
 
 [lints.rust]
 unsafe_code = "forbid"
